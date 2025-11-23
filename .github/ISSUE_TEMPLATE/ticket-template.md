@@ -1,9 +1,9 @@
 ---
 name: Ticket Template
 about: トラセン用チケットテンプレートです
-title: ''
-labels: ''
-assignees: ''
+title: "[開発][調査中][バグ][テスト]"
+labels: 00_未着手
+assignees: RentoYabuki06
 
 ---
 
