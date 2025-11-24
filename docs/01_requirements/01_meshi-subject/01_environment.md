@@ -24,3 +24,11 @@
 - Fastify SQLite Typed Plugin（SQLite操作用）
 - ping（フロントエンドとの疎通確認）
 - vi（エディタ）
+
+### docker立ち上げ確認
+#### docker build（イメージの作成）
+`docker build -t ft_backend -f Dockerfile .`
+#### docker run（コンテナの起動）
+`docker run --rm -p 3000:3000 ft_backend`
+ - `--rm` : 停止時に自動でコンテナ削除
+ - `-p <ホストPort>:<コンテナPort>` : 
