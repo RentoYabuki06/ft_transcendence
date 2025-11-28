@@ -1,0 +1,19 @@
+{
+  "name": "ft_transcendence_frontend",
+  "version": "1.0.0",
+  "description": "42 Tokyo ft_transcendence - Frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit"
+  },
+	"devDependencies": {
+		"typescript": "^5.9.3",
+    "vite": "^7.2.4",
+    "tailwindcss": "^4.1.17",
+    "@tailwindcss/vite": "^4.1.17"
+	}
+}
