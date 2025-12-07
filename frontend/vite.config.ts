@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite'
 import tailwindcss from '@tailwindcss/vite'
-import { prototype } from 'node:module';
 
 /*
 環境変数チェッカー（空かどうかのみを判定）
