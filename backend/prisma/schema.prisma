@@ -2,7 +2,8 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../generated/prisma"
 }
 
 datasource db {
@@ -10,9 +11,72 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// 【仮置き】データ構造が決まったらこのモデルは削除・変更してOKです
-model AppStatus {
-  id        Int      @id @default(autoincrement())
-  createdAt DateTime @default(now())
-  status    String   @default("ok")
+model User {
+  id            Int         @id @default(autoincrement())
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @default(now()) @updatedAt
+  email         String      @unique
+  name          String
+  nickname      String      @unique
+  pictureURL    String?
+
+  // リレーションの逆引き定義
+  p1Games       Game[]      @relation("Player1")
+  p2Games       Game[]      @relation("Player2")
+  p3Games       Game[]      @relation("Player3")
+  p4Games       Game[]      @relation("Player4")
+  wonGames      Game[]      @relation("GameWinner")
+  
+  wonTournaments Tournament[] @relation("TournamentWinner")
+}
+
+model Tournament {
+  id            Int         @id @default(autoincrement())
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @default(now()) @updatedAt
+  
+  games         Game[]
+
+  /// 勝者情報（トーナメント終了までNULLを許容）
+  winner        User?       @relation("TournamentWinner", fields: [winnerId], references: [id])
+  winnerId      Int?
+}
+
+model Game {
+  id            Int         @id @default(autoincrement())
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @default(now()) @updatedAt
+
+  /// トーナメント情報
+  tournament    Tournament  @relation(fields: [tournamentId], references: [id])
+  tournamentId  Int
+
+  /// トーナメントの中で何回戦の何試合目か
+  round         Int         @default(1)
+  order         Int         @default(1)
+
+  playerNum     Int         @default(2)
+
+  /// 参加プレイヤー情報（名前付きリレーションで区別）
+  player1       User        @relation("Player1", fields: [player1Id], references: [id])
+  player1Id     Int
+  
+  player2       User        @relation("Player2", fields: [player2Id], references: [id])
+  player2Id     Int
+  
+  player3       User?       @relation("Player3", fields: [player3Id], references: [id])
+  player3Id     Int?
+  
+  player4       User?       @relation("Player4", fields: [player4Id], references: [id])
+  player4Id     Int?
+
+  /// 各プレイヤー獲得点数
+  pointsP1      Int         @default(0)
+  pointsP2      Int         @default(0)
+  pointsP3      Int?
+  pointsP4      Int?
+
+  /// 勝者情報（試合終了までNULLを許容）
+  winner        User?       @relation("GameWinner", fields: [winnerId], references: [id])
+  winnerId      Int?
 }
