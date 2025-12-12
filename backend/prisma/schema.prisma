@@ -11,72 +11,168 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id            Int         @id @default(autoincrement())
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @default(now()) @updatedAt
-  email         String      @unique
-  name          String
-  nickname      String      @unique
-  pictureURL    String?
+// ------------------------------------------------------
+// Enums (列挙型)
+// ------------------------------------------------------
 
-  // リレーションの逆引き定義
-  p1Games       Game[]      @relation("Player1")
-  p2Games       Game[]      @relation("Player2")
-  p3Games       Game[]      @relation("Player3")
-  p4Games       Game[]      @relation("Player4")
-  wonGames      Game[]      @relation("GameWinner")
-  
-  wonTournaments Tournament[] @relation("TournamentWinner")
+/// ユーザーのアカウント状態
+enum UserStatus {
+  active   // 通常利用可能
+  inactive // 一時停止中
+  banned   // 凍結/BAN
 }
 
-model Tournament {
-  id            Int         @id @default(autoincrement())
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @default(now()) @updatedAt
-  
-  games         Game[]
-
-  /// 勝者情報（トーナメント終了までNULLを許容）
-  winner        User?       @relation("TournamentWinner", fields: [winnerId], references: [id])
-  winnerId      Int?
+/// 試合の進行状況
+enum GameStatus {
+  pending   // マッチング成立・開始前
+  ongoing   // 試合中
+  completed // 試合終了
+  canceled  // 中止
 }
 
-model Game {
-  id            Int         @id @default(autoincrement())
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @default(now()) @updatedAt
+/// ゲーム種別のステータス
+enum GameTypeStatus {
+  pending   // 試合開始前
+  ongoing   // 試合中
+  completed // 試合終了
+  canceled  // 試合キャンセル
+}
 
-  /// トーナメント情報
-  tournament    Tournament  @relation(fields: [tournamentId], references: [id])
-  tournamentId  Int
+/// トーナメントの進行状況
+enum TournamentStatus {
+  pending   // 募集開始前・募集中
+  ongoing   // 開催中
+  completed // 全日程終了
+  canceled  // 中止
+}
 
-  /// トーナメントの中で何回戦の何試合目か
-  round         Int         @default(1)
-  order         Int         @default(1)
+/// 待機室のステータス
+enum WaitRoomStatus {
+  pending   // 募集中
+  ongoing   // ゲーム開始済み（または満員）
+  completed // 解散済み
+  canceled  // 削除済み
+}
 
-  playerNum     Int         @default(2)
+/// 各試合の各プレイヤーのスコアのステータス
+enum PlayerScoresStatus {
+  pending   // 試合開始前
+  ongoing   // 試合中
+  completed // 試合終了
+  canceled  // 試合キャンセル
+}
 
-  /// 参加プレイヤー情報（名前付きリレーションで区別）
-  player1       User        @relation("Player1", fields: [player1Id], references: [id])
-  player1Id     Int
+// ------------------------------------------------------
+// Models (テーブル定義)
+// ------------------------------------------------------
+
+/// ユーザー情報を管理するテーブル
+/// 認証情報は Accounts テーブルに分離し、プロフィール情報のみを管理します
+model Users {
+  id                 Int          @id @default(autoincrement())
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @default(now()) @updatedAt
   
-  player2       User        @relation("Player2", fields: [player2Id], references: [id])
-  player2Id     Int
-  
-  player3       User?       @relation("Player3", fields: [player3Id], references: [id])
-  player3Id     Int?
-  
-  player4       User?       @relation("Player4", fields: [player4Id], references: [id])
-  player4Id     Int?
+  email              String       @unique /// メールアドレス（システム内で一意）
+  name               String       /// 氏名（実名など）
+  nickname           String       @unique /// 表示名（ゲーム内で使用、一意）
+  pictureURL         String?      /// アバター画像のURL
+  status             UserStatus   @default(active) /// アカウント状態
 
-  /// 各プレイヤー獲得点数
-  pointsP1      Int         @default(0)
-  pointsP2      Int         @default(0)
-  pointsP3      Int?
-  pointsP4      Int?
+  // --- 認証関連 ---
+  hashedPassword     String?      /// ローカルログイン用のパスワードハッシュ（OAuth利用時はNULL可）
+  twoFactorSecret    String?      /// 2要素認証(2FA)用のシークレットキー
+  isTwoFactorEnabled Boolean      @default(false) /// 2FA有効化フラグ
+}
 
-  /// 勝者情報（試合終了までNULLを許容）
-  winner        User?       @relation("GameWinner", fields: [winnerId], references: [id])
-  winnerId      Int?
+/// 外部認証プロバイダー（OAuth）のアカウント情報を管理するテーブル
+/// 1人のユーザーが複数の認証方法（Google, 42, GitHubなど）を持てるように設計
+model Accounts {
+  id                Int      @id @default(autoincrement())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  userId            Int      /// 紐付くユーザーのID (Users.id)
+  
+  provider          String   /// プロバイダー名 (例: 'google', '42', 'github')
+  providerAccountId String   /// プロバイダー側でのユーザーID (sub, id等)
+
+  accessToken       String?  /// アクセストークン（必要に応じて保存）
+  refreshToken      String?  /// リフレッシュトークン（必要に応じて保存）
+
+  /// 同じプロバイダーで同じアカウントIDが重複しないように制約を設定
+  @@unique([provider, providerAccountId])
+}
+
+/// トーナメント情報を管理するテーブル
+model Tournaments {
+  id              Int               @id @default(autoincrement())
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @default(now()) @updatedAt
+  status          TournamentStatus  @default(pending)
+}
+
+/// 待機室（マッチング待ち）テーブル
+model WaitingRooms {
+  id              Int                 @id @default(autoincrement())
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @default(now()) @updatedAt
+  status          WaitRoomStatus      @default(pending)
+
+  name            String              /// 部屋名
+  adminUserId     Int                 /// 部屋の管理者（作成者）
+}
+
+/// 待機室の参加者管理テーブル
+model WaitingRoomParticipants {
+  id            Int      @id @default(autoincrement())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+
+  waitingRoomId Int      /// 参加している待機室ID
+  userId        Int      /// 参加しているユーザーID
+  
+  // 同じ部屋に同じユーザーが重複しないように
+  @@unique([waitingRoomId, userId])
+}
+
+/// 試合情報を管理するテーブル（トーナメント内の1試合の記録）
+model Games {
+  id              Int               @id @default(autoincrement())
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @default(now()) @updatedAt
+  status          GameStatus        @default(pending)
+
+  /// 所属トーナメントID
+  tournamentId    Int
+
+  /// トーナメント内での位置づけ
+  round           Int               @default(1) /// 何回戦か (1: 1回戦, 2: 2回戦...)
+  order           Int               @default(1) /// そのラウンド内の何試合目か
+
+  playerNum       Int               @default(2) /// 参加人数（基本は2）
+  
+  /// 勝者のユーザーID（試合終了までNULL）
+  winnerId        Int?
+}
+
+/// ゲームの種類（ルール設定など）を管理するテーブル
+model GameTypes {
+  id              Int               @id @default(autoincrement())
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @default(now()) @updatedAt
+  status          GameTypeStatus    @default(pending)
+  
+  gameType        String            /// ゲームの種類名（2人対戦, 4人対戦）
+}
+
+/// 試合ごとのプレイヤー成績を管理するテーブル
+model PlayerScores {
+  id              Int               @id @default(autoincrement())
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @default(now()) @updatedAt
+
+  gameId          Int               /// 対象の試合ID
+  userId          Int               /// プレイヤーのユーザーID
+  score           Int               @default(0) /// 獲得スコア
 }
