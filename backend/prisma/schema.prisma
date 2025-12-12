@@ -151,7 +151,7 @@ model Games {
   order           Int               @default(1) /// そのラウンド内の何試合目か
 
   playerNum       Int               @default(2) /// 参加人数（基本は2）
-  
+  gameTypeId      Int
   /// 勝者のユーザーID（試合終了までNULL）
   winnerId        Int?
 }
