@@ -12,6 +12,18 @@ datasource db {
 }
 
 // ------------------------------------------------------
+// Enums (列挙型)
+// ------------------------------------------------------
+
+/// 認証プロバイダーの種類
+enum AuthProvider {
+  google   // Google OAuth
+  intra42  // 42 Intra OAuth
+  github   // GitHub OAuth
+  local    // ローカル認証（Email/Password）
+}
+
+// ------------------------------------------------------
 // Models (テーブル定義)
 // ------------------------------------------------------
 
@@ -39,13 +51,12 @@ model Users {
   
   email              String       @unique /// メールアドレス（システム内で一意）
   name               String       /// 氏名（実名など）
-  nickname           String       @unique /// 表示名（ゲーム内で使用、一意）
+  nickname           String       /// 表示名
   pictureURL         String?      /// アバター画像のURL
   statusId           Int          /// アカウント状態（Statusesテーブルへの参照）
 
-  // --- 認証関連 ---
-  hashedPassword     String?      /// ローカルログイン用のパスワードハッシュ（OAuth利用時はNULL可）
-  twoFactorSecret    String?      /// 2要素認証(2FA)用のシークレットキー
+  // --- Two-factor authentication (2FA) ---
+  twoFactorSecret    String?      /// 2FA用のTOTP秘密鍵（Base32文字列）
   isTwoFactorEnabled Boolean      @default(false) /// 2FA有効化フラグ
   
   createdAt          DateTime     @default(now())
@@ -57,10 +68,11 @@ model Users {
 model Accounts {
   id                Int      @id @default(autoincrement())
 
-  userId            Int      /// 紐付くユーザーのID (Users.id)
+  statusId          Int          /// アカウント連携のステータス（Statusesテーブルへの参照）
+  userId            Int          /// 紐付くユーザーのID (Users.id)
   
-  provider          String   /// プロバイダー名 (例: 'google', '42', 'github')
-  providerAccountId String   /// プロバイダー側でのユーザーID (sub, id等)
+  provider          AuthProvider /// 認証プロバイダーの種類
+  providerAccountId String       /// プロバイダー側でのユーザーID (sub, id等)
 
   accessToken       String?  /// アクセストークン（必要に応じて保存）
   refreshToken      String?  /// リフレッシュトークン（必要に応じて保存）
@@ -98,6 +110,7 @@ model WaitingRooms {
 model WaitingRoomParticipants {
   id            Int      @id @default(autoincrement())
 
+  statusId      Int      /// 参加者のステータス（Statusesテーブルへの参照）
   waitingRoomId Int      /// 参加している待機室ID
   userId        Int      /// 参加しているユーザーID
   
@@ -139,6 +152,7 @@ model GameTypes {
 model PlayerScores {
   id              Int               @id @default(autoincrement())
 
+  statusId        Int               /// スコアのステータス（Statusesテーブルへの参照）
   gameId          Int               /// 対象の試合ID
   userId          Int               /// プレイヤーのユーザーID
   score           Int               @default(0) /// 獲得スコア
