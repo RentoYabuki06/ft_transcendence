@@ -93,7 +93,7 @@ const start = async () => {
     
     console.log(`Server is running on http://${host}:${port}`)
   } catch (err) {
-    server.log.error(err)
+    server.log.error(err, "Fatal error: Failed to start the backend server")
     process.exit(1)
   }
 }
