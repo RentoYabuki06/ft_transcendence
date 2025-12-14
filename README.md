@@ -35,15 +35,33 @@ Host github.com
 
 ### Docker を立ち上げる方法
 
-**例**
+**Linux**
 
 ```bash
-# Linux の systemctl 系
-systemctl status docker
-
-# Linux の service 系
-service docker status
+systemctl start docker
 ```
+
+**macOS**
+
+```bash
+# Docker Desktop を起動
+open -a Docker
+
+# または、すでに起動している場合は不要
+# Docker Desktop が起動していることを確認
+docker info
+```
+
+**Windows**
+
+```powershell
+# Docker Desktop を起動 (PowerShell)
+Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+
+# または、スタートメニューから「Docker Desktop」を起動
+```
+
+> **Note**: macOS と Windows では Docker Desktop が起動していれば、`docker compose` コマンドが使用可能です。
 
 <br>
 
