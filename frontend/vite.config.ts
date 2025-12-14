@@ -5,11 +5,11 @@ import tailwindcss from '@tailwindcss/vite'
 環境変数チェッカー（空かどうかのみを判定）
 */
 function requireEnv(key: string): string {
-	const value = process.env[key]
-	if (!value) {
-		throw new Error(`環境変数 ${key} が正しく設定されていません`)
-	}
-	return value;
+  const value = process.env[key]
+  if (!value) {
+    throw new Error(`環境変数 ${key} が正しく設定されていません`)
+  }
+  return value;
 }
 
 /*
@@ -23,33 +23,33 @@ const apiTarget = requireEnv('VITE_API_TARGET');
 
 // ポート番号の妥当性チェック
 if (isNaN(port) || port < 1 || port > 65535) {
-	throw new Error(`環境変数に設定されたport番号 ${port} が正しくありません`);
+  throw new Error(`環境変数に設定されたport番号 ${port} が正しくありません`);
 }
 
 /*
 viteの設定オブジェクト
 */
 export default defineConfig({
-	plugins: [
-		tailwindcss(),
-	],
-	server: {
-		host: host,
-		port: port,
-		watch: {
-			// ホストOSのファイルシステムイベントはDockerコンテナに届かない
-			// イベントに頼らずチェックする必要がある
-			usePolling: true,	
-		},
-		proxy: {
-			// []で囲うことで計算プロパティ名に（動的に決定）
-			// []なしだと'apiPath'という文字列になってしまい, 変数値の'/api'などがが入らない
-			[apiPath]: {
-				target: apiTarget,
-				// CORS回避
-				changeOrigin: true,
-				rewrite: (path) => path.replace(/^\/api/, ''),
-			}
-		}
-	},
+  plugins: [
+    tailwindcss(),
+  ],
+  server: {
+    host: host,
+    port: port,
+    watch: {
+      // ホストOSのファイルシステムイベントはDockerコンテナに届かない
+      // イベントに頼らずチェックする必要がある
+      usePolling: true,	
+    },
+    proxy: {
+      // []で囲うことで計算プロパティ名に（動的に決定）
+      // []なしだと'apiPath'という文字列になってしまい, 変数値の'/api'などがが入らない
+      [apiPath]: {
+        target: apiTarget,
+        // CORS回避
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      }
+    }
+  },
 })
