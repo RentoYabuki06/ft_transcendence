@@ -13,6 +13,10 @@ services:
       - frontend-node-modules:/app/node_modules
     environment:
       - NODE_ENV=development
+      - VITE_HOST=0.0.0.0
+      - VITE_PORT=5173
+      - VITE_API_PROXY_PATH=/api
+      - VITE_API_TARGET=http://backend:3000
     networks:
       - app-network
     depends_on:
