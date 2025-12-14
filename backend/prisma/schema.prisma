@@ -74,9 +74,6 @@ model Accounts {
   provider          AuthProvider /// 認証プロバイダーの種類
   providerAccountId String       /// プロバイダー側でのユーザーID (sub, id等)
 
-  accessToken       String?  /// アクセストークン（必要に応じて保存）
-  refreshToken      String?  /// リフレッシュトークン（必要に応じて保存）
-
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
