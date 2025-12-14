@@ -34,7 +34,6 @@ model Statuses {
   
   category        String   /// どのモデル用か ('user', 'game', 'tournament', 'waitroom', 'gametype')
   name            String   /// ステータス名 ('active', 'pending', 'ongoing', etc.)
-  displayName     String   /// 表示用の名前
   description     String?  /// ステータスの説明
   
   createdAt       DateTime @default(now())
