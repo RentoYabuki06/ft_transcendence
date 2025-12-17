@@ -1,0 +1,59 @@
+services:
+  frontend:
+    build:
+      context: ./
+      dockerfile: docker/frontend/Dockerfile
+    image: ft_transcendence_frontend:dev
+    container_name: ft_transcendence_frontend
+    ports:
+      - "5173:5173"
+    restart: unless-stopped
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_HOST=0.0.0.0
+      - VITE_PORT=5173
+      - VITE_API_PROXY_PATH=/api
+      - VITE_API_TARGET=http://backend:3000
+    networks:
+      - app-network
+    depends_on:
+      backend:
+        condition: service_healthy
+  backend:
+    build: 
+      context: ./
+      dockerfile: docker/backend/Dockerfile
+    image: ft_transcendence_backend:dev
+    container_name: ft_transcendence_backend
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    volumes:
+      - ./backend:/app
+      - backend-node-modules:/app/node_modules
+      - sqlite-data:/app/data
+    environment:
+      - NODE_ENV=development
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-4", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  sqlite-data:
+    driver: local
+  backend-node-modules:
+    driver: local
+  frontend-node-modules:
+    driver: local
