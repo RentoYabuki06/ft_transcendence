@@ -20,7 +20,6 @@ enum AuthProvider {
   google   // Google OAuth
   intra42  // 42 Intra OAuth
   github   // GitHub OAuth
-  local    // ローカル認証（Email/Password）
 }
 
 // ------------------------------------------------------
@@ -54,10 +53,6 @@ model Users {
   pictureURL         String?      /// アバター画像のURL
   statusId           Int          /// アカウント状態（Statusesテーブルへの参照）
 
-  // --- Two-factor authentication (2FA) ---
-  twoFactorSecret    String?      /// 2FA用のTOTP秘密鍵（Base32文字列）
-  isTwoFactorEnabled Boolean      @default(false) /// 2FA有効化フラグ
-  
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @default(now()) @updatedAt
 }
