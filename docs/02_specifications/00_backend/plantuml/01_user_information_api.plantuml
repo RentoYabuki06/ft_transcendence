@@ -1,0 +1,56 @@
+@startuml
+title ユーザー情報API（詳細）
+
+actor       クライアント as client
+participant "ユーザー情報API" as user_info_api
+participant "プロフィール" as profile
+participant "ステータス" as status
+participant "2FA状態" as twofacter
+database    "DB" as db
+
+== プロフィール表示 ==
+group ユーザー情報取得（GET）
+  client -> user_info_api: 自分のユーザー情報を取得
+  user_info_api -> profile: プロフィール取得
+  profile -> db: SELECT user/profile
+  db --> profile: id, name, nickname, pictureURL, updatedAt
+
+  user_info_api -> status: アカウント状態取得
+  status -> db: SELECT status
+  db --> status: statusId
+
+  user_info_api -> twofacter: 2FA状態取得
+  twofacter -> db: SELECT isTwoFactorEnabled
+  db --> twofacter: isTwoFactorEnabled
+
+  user_info_api --> client: id, name, nickname, pictureURL, statusId, twoFAEnabled
+end group
+
+== プロフィール更新 ==
+group プロフィール更新（PATCH）
+  client -> user_info_api: プロフィール更新
+  user_info_api -> profile: バリデーション/重複チェック
+  profile -> db: UPDATE (変更箇所のみ)
+  db --> profile: OK
+  user_info_api --> client: OK {updatedAt}
+end group
+
+== アバター画像更新 ==
+group アバター更新
+  client -> user_info_api: アバターURL設定
+  user_info_api -> profile: URLバリデーション
+  profile -> db: UPDATE pictureURL
+  db --> profile: OK
+  user_info_api --> client: OK {pictureURL, updatedAt}
+end group
+
+== アバター画像削除 ==
+group アバター削除（DELETE /me/avatar）
+  client -> user_info_api: アバターをデフォルトに戻す
+  user_info_api -> profile: pictureURLをnullに更新
+  profile -> db: UPDATE pictureURL = NULL
+  db --> profile: OK
+  user_info_api --> client: OK {pictureURL, updatedAt}
+end group
+
+@enduml
