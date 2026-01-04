@@ -10,23 +10,23 @@ database    "DB" as db
 
 == プロフィール表示 ==
 group ユーザー情報取得（GET）
-  client -> user_info_api: 自分のユーザー情報を取得
-  user_info_api -> profile: プロフィール取得
-  profile -> db: SELECT user/profile
-  db --> profile: プロフィール情報
-  profile -> user_info_api:
+  client ->  user_info_api: 自分のユーザー情報を取得
+    user_info_api -> profile: プロフィール取得
+      profile ->  db: SELECT user/profile
+      profile <-- db: プロフィール情報
+    user_info_api <-- profile:
 
-  user_info_api -> status: アカウント状態取得
-  status -> db: SELECT status
-  db --> status: statusId
-  status --> user_info_api:
+    user_info_api ->  status: アカウント状態取得
+      status ->  db: SELECT status
+      status <-- db: statusId
+    user_info_api <-- status::
 
-  user_info_api -> twofacter: 2FA状態取得
-  twofacter -> db: SELECT isTwoFactorEnabled
-  db --> twofacter: isTwoFactorEnabled
-  twofacter --> user_info_api:
+    user_info_api ->  twofacter: 2FA状態取得
+      twofacter ->  db: SELECT isTwoFactorEnabled
+      twofacter <-- db: isTwoFactorEnabled
+    user_info_api <-- twofacter:
 
-  user_info_api --> client: プロフィール、アカウント状態、2FA状態
+  client <-- client: プロフィール、アカウント状態、2FA状態
 end group
 
 == プロフィール更新 ==
