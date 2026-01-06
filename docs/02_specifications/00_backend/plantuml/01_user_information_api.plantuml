@@ -11,52 +11,52 @@ database    "DB" as db
 == プロフィール表示 ==
 group ユーザー情報取得（GET）
   client -> user_info_api: 自分のユーザー情報を取得
-  user_info_api -> profile: プロフィール取得
-  profile -> db: SELECT user/profile
-  db --> profile: プロフィール情報
-  profile -> user_info_api:
+    user_info_api ->  profile: プロフィール取得
+      profile ->  db: SELECT user/profile
+      profile <-- db: プロフィール情報
+    user_info_api <-- profile:
 
-  user_info_api -> status: アカウント状態取得
-  status -> db: SELECT status
-  db --> status: statusId
-  status --> user_info_api:
+    user_info_api -> status: アカウント状態取得
+      status ->  db: SELECT status
+      status <-- db: statusId
+    user_info_api <-- status:
 
-  user_info_api -> twofacter: 2FA状態取得
-  twofacter -> db: SELECT isTwoFactorEnabled
-  db --> twofacter: isTwoFactorEnabled
-  twofacter --> user_info_api:
+    user_info_api -> twofacter: 2FA状態取得
+      twofacter ->  db: SELECT isTwoFactorEnabled
+      twofacter <-- db: isTwoFactorEnabled
+    user_info_api <-- twofacter:
 
-  user_info_api --> client: プロフィール、アカウント状態、2FA状態
+  client <-- user_info_api: プロフィール、アカウント状態、2FA状態
 end group
 
 == プロフィール更新 ==
 group プロフィール更新（PATCH）
   client -> user_info_api: プロフィール更新
-  user_info_api -> profile: バリデーション/重複チェック
-  profile -> db: UPDATE (変更箇所のみ)
-  db --> profile: OK
-  profile --> user_info_api: OK
-  user_info_api --> client: OK {updatedAt}
+    user_info_api -> profile: バリデーション/重複チェック
+      profile ->  db: UPDATE (変更箇所のみ)
+      profile <-- db: OK
+    user_info_api <-- profile: OK
+  client <-- user_info_api: OK {updatedAt}
 end group
 
 == アバター画像更新 ==
 group アバター更新
   client -> user_info_api: アバターURL設定
-  user_info_api -> profile: URLバリデーション
-  profile -> db: UPDATE pictureURL
-  db --> profile: OK
-  profile --> user_info_api: OK
-  user_info_api --> client: OK {pictureURL, updatedAt}
+    user_info_api -> profile: URLバリデーション
+      profile ->  db: UPDATE pictureURL
+      profile <-- db: OK
+    user_info_api <-- profile: OK
+  client <-- user_info_api: OK {pictureURL, updatedAt}
 end group
 
 == アバター画像削除 ==
 group アバター削除（DELETE /me/avatar）
   client -> user_info_api: アバターをデフォルトに戻す
-  user_info_api -> profile: pictureURLをnullに更新
-  profile -> db: UPDATE pictureURL = NULL
-  db --> profile: OK
-  profile -> user_info_api: OK
-  user_info_api --> client: OK {pictureURL, updatedAt}
+    user_info_api -> profile: pictureURLをnullに更新
+      profile ->  db: UPDATE pictureURL = NULL
+      profile <-- db: OK
+    user_info_api <-- profile: OK
+  client <-- user_info_api: OK {pictureURL, updatedAt}
 end group
 
 @enduml
