@@ -1,5 +1,8 @@
 # プロフィール情報取得のAPI
 
+![user_information_api](../imgs/01_user_information_api.png)
+
+
 **HTTPメソッド** : GET  
 **エンドポイント** : /profile
 
