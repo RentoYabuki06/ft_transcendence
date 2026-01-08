@@ -12,15 +12,6 @@ datasource db {
 }
 
 // ------------------------------------------------------
-// Enums (列挙型)
-// ------------------------------------------------------
-
-/// 認証プロバイダーの種類
-enum AuthProvider {
-  intra42  // 42 Intra OAuth
-}
-
-// ------------------------------------------------------
 // Models (テーブル定義)
 // ------------------------------------------------------
 
@@ -46,32 +37,15 @@ model Users {
   id                 Int          @id @default(autoincrement())
   
   email              String       @unique /// メールアドレス（システム内で一意）
-  name               String       /// 氏名（42のintra名など）
-  nickname           String       /// 表示名
-  pictureURL         String?      /// アバター画像のURL
+  name               String       /// 氏名（42のintra名が入る想定）
+  nickname           String       /// 表示名（後から変更可能）
+  pictureURL         String?      /// アバター画像のURL（後から変更可能）
   statusId           Int          /// アカウント状態（Statusesテーブルへの参照）
 
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @default(now()) @updatedAt
 }
 
-/// 外部認証プロバイダー（OAuth）のアカウント情報を管理するテーブル
-/// 1人のユーザーが複数の認証方法（Google, 42, GitHubなど）を持てるように設計
-model Accounts {
-  id                Int      @id @default(autoincrement())
-
-  statusId          Int          /// アカウント連携のステータス（Statusesテーブルへの参照）
-  userId            Int          /// 紐付くユーザーのID (Users.id)
-  
-  provider          AuthProvider /// 認証プロバイダーの種類
-  providerAccountId String       /// プロバイダー側でのユーザーID (sub, id等)
-
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  /// 同じプロバイダーで同じアカウントIDが重複しないように制約を設定
-  @@unique([provider, providerAccountId])
-}
 
 /// トーナメント情報を管理するテーブル
 model Tournaments {
