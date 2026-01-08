@@ -17,9 +17,7 @@ datasource db {
 
 /// 認証プロバイダーの種類
 enum AuthProvider {
-  google   // Google OAuth
   intra42  // 42 Intra OAuth
-  github   // GitHub OAuth
 }
 
 // ------------------------------------------------------
@@ -48,7 +46,7 @@ model Users {
   id                 Int          @id @default(autoincrement())
   
   email              String       @unique /// メールアドレス（システム内で一意）
-  name               String       /// 氏名（実名など）
+  name               String       /// 氏名（42のintra名など）
   nickname           String       /// 表示名
   pictureURL         String?      /// アバター画像のURL
   statusId           Int          /// アカウント状態（Statusesテーブルへの参照）
@@ -80,7 +78,8 @@ model Tournaments {
   id              Int               @id @default(autoincrement())
   
   statusId        Int               /// トーナメントの進行状況（Statusesテーブルへの参照）
-  
+  winnerId        Int?              /// 勝者のユーザーID（試合終了までNULL）
+
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @default(now()) @updatedAt
 }
