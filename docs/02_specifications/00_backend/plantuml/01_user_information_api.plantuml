@@ -1,62 +1,41 @@
 @startuml
-title ユーザー情報API（詳細）
+title ユーザープロフィールAPI（詳細）
 
 actor       クライアント as client
-participant "ユーザー情報API" as user_info_api
+participant "ユーザープロフィールAPI" as user_api
 participant "プロフィール" as profile
-participant "ステータス" as status
-participant "2FA状態" as twofacter
 database    "DB" as db
 
-== プロフィール表示 ==
-group ユーザー情報取得（GET）
-  client -> user_info_api: 自分のユーザー情報を取得
-    user_info_api ->  profile: プロフィール取得
-      profile ->  db: SELECT user/profile
+== プロフィール取得（自分） ==
+group 自分のプロフィール取得（GET /users/me）
+  client -> user_api: 自分のプロフィールを取得\nAuthorization: Bearer <JWT>
+    user_api -> user_api: JWT検証
+    user_api -> profile: プロフィール取得（自分）
+      profile -> db: SELECT user profile
       profile <-- db: プロフィール情報
-    user_info_api <-- profile:
+    user_api <-- profile: プロフィール
+  client <-- user_api: プロフィール
+end group
 
-    user_info_api -> status: アカウント状態取得
-      status ->  db: SELECT status
-      status <-- db: statusId
-    user_info_api <-- status:
-
-    user_info_api -> twofacter: 2FA状態取得
-      twofacter ->  db: SELECT isTwoFactorEnabled
-      twofacter <-- db: isTwoFactorEnabled
-    user_info_api <-- twofacter:
-
-  client <-- user_info_api: プロフィール、アカウント状態、2FA状態
+== プロフィール取得（相手） ==
+group 相手のプロフィール取得（GET /users/{userId}）
+  client -> user_api: 相手のプロフィールを取得
+    user_api -> profile: プロフィール取得（相手）
+      profile -> db: SELECT public profile
+      profile <-- db: プロフィール情報
+    user_api <-- profile: プロフィール
+  client <-- user_api: プロフィール
 end group
 
 == プロフィール更新 ==
-group プロフィール更新（PATCH）
-  client -> user_info_api: プロフィール更新
-    user_info_api -> profile: バリデーション/重複チェック
-      profile ->  db: UPDATE (変更箇所のみ)
+group プロフィール更新（PATCH /users/me）
+  client -> user_api: プロフィール更新\nAuthorization: Bearer <JWT>
+    user_api -> user_api: JWT検証
+    user_api -> profile: バリデーション／重複チェック
+      profile -> db: UPDATE profile（指定項目のみ）
       profile <-- db: OK
-    user_info_api <-- profile: OK
-  client <-- user_info_api: OK {updatedAt}
-end group
-
-== アバター画像更新 ==
-group アバター更新
-  client -> user_info_api: アバターURL設定
-    user_info_api -> profile: URLバリデーション
-      profile ->  db: UPDATE pictureURL
-      profile <-- db: OK
-    user_info_api <-- profile: OK
-  client <-- user_info_api: OK {pictureURL, updatedAt}
-end group
-
-== アバター画像削除 ==
-group アバター削除（DELETE /me/avatar）
-  client -> user_info_api: アバターをデフォルトに戻す
-    user_info_api -> profile: pictureURLをnullに更新
-      profile ->  db: UPDATE pictureURL = NULL
-      profile <-- db: OK
-    user_info_api <-- profile: OK
-  client <-- user_info_api: OK {pictureURL, updatedAt}
+    user_api <-- profile: OK
+  client <-- user_api: 更新後プロフィール
 end group
 
 @enduml

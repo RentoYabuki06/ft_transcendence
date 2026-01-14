@@ -1,45 +1,83 @@
-# プロフィール情報取得のAPI
+# ユーザープロフィールに関するAPI
 
 ![user_information_api](../imgs/01_user_information_api.png)
 
-
-**HTTPメソッド** : GET  
-**エンドポイント** : /profile
 
 ---
 ## 概要
 
 ```txt
-ログイン中ユーザー自身の情報を取得するAPI。
+ユーザープロフィールに関するAPI。
 
-本APIでは以下の情報を一括で取得する。
-- プロフィール情報（名前・ニックネーム・アバターURL など）
-- アカウント状態（statusId）
-- 2FA 有効状態（twoFAEnabled）
+ユーザーのプロフィール情報を取得し、
+ログイン中ユーザーのニックネームおよびアバター画像を更新する。
 ```
 
 <br>
 
 ## 機能
+#### ユーザー情報
+- [自分のプロフィール情報を取得するもの](#自分のプロフィール情報を取得するもの)
+- [相手のプロフィール情報を取得するもの](#相手のプロフィール情報を取得するもの)
 
-1. [1-プロフィール情報を取得するもの](#1-プロフィール情報を取得するもの)
-2. [2-アカウント状態を取得するもの](#2-アカウント状態を取得するもの)
-3. [3-2fa状態を取得するもの](#3-2fa状態を取得するもの)
-
+- [自分のプロフィールを更新するもの](#自分のプロフィールを更新するもの)
 <br>
 
 ## 詳細
 
-### 1-プロフィール情報を取得するもの
-**メソッド : function**
+### 自分のプロフィール情報を取得するもの
+**メソッド : GET** <br>
+**エンドポイント : /users/me** <br>
+<br>
+
+**認証** <br>
+Authorizationヘッダに JWT を指定する。
+```http
+Authorization: Bearer <JWT>
+```
+
+**引数** 
+
+なし
+
+**戻り値**
+
+|番号|型|説明|
+|:--|:--|:--|
+|01|int|ユーザーid|
+|02|string|name|
+|03|string|nickname|
+|04|string \| null|pictureURL|
 
 <br>
+
+---
+
+### レスポンス例
+```json
+{
+  "id": 1,
+  "name": "nisi",
+  "nickname": "にし",
+  "pictureURL": "https://example.com/avatar.png"
+}
+```
+---
+<br>
+
+### 相手のプロフィール情報を取得するもの
+**メソッド : GET** <br>
+**エンドポイント : /users/{userId}** <br>
+<br>
+
+**認証** <br>
+なし
 
 **引数** 
 
 |番号|名称|型|説明|
 |:--|:--|:--|:--|
-|01|id|int|ユーザーのID|
+|01|id|int|取得対象のユーザーid|
 
 
 **戻り値**
@@ -55,49 +93,49 @@
 
 ---
 
-### 2-アカウント状態を取得するもの
-**メソッド : function**
-
-<br>
-
-**引数**
-
-
-|番号|名称|型|説明|
-|:--|:--|:--|:--|
-|01|id|int|ユーザーのID|
-
-<br>
-
-**戻り値**
-
-|番号|型|説明|
-|:--|:--|:--|
-|01|int|statusId|
-
-<br>
-
+### レスポンス例
+```json
+{
+  "id": 1,
+  "name": "nisi",
+  "nickname": "にし",
+  "pictureURL": "https://example.com/avatar.png"
+}
+```
 ---
-
-### 3-2fa状態を取得するもの
-**メソッド : function**
-
 <br>
 
-**引数**
+### 自分のプロフィールを更新するもの
+**メソッド : PATCH** <br>
+**エンドポイント : /users/me** <br>
+<br>
 
+**認証** <br>
+Authorization ヘッダに JWT を指定する。
+```http
+Authorization: Bearer <JWT>
+```
+<br>
+
+**引数** 
 
 |番号|名称|型|説明|
 |:--|:--|:--|:--|
-|01|id|int|ユーザーのID|
+|01|nickname|string|変更後のニックネーム|
+|02|pictureURL|string|プロフィール画像|
 
-<br>
+※ 指定された項目のみ更新
 
 **戻り値**
 
 |番号|型|説明|
 |:--|:--|:--|
-|01|Boolean|isTwoFactorEnabled|
+|01|int|ユーザーid|
+|02|string|name|
+|03|string|nickname|
+|04|string|アバター画像のURL|
+|05|Datetime|updatedAt|
+
 
 <br>
 
@@ -110,8 +148,6 @@
   "name": "nisi",
   "nickname": "nisi",
   "pictureURL": "https://example.com/avatar.png",
-  "statusId": ステータステーブルの参照,
-  "twoFAEnabled": true
+  "updatedAt": " "
 }
 ```
-
