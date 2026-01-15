@@ -1,0 +1,101 @@
+@startuml
+title トーナメント関連API
+
+' プレイヤーA: トーナメント作成者
+actor "プレイヤーA\n（トーナメント作成者）" as playerA
+
+' プレイヤーB: トーナメント参加者
+actor "プレイヤーB\n（トーナメント参加者）" as playerB
+participant "Backend API" as api
+participant "Tournament Service" as svc
+database "DB" as db
+
+group トーナメント作成
+  playerA -> api: POST /tournaments
+  api -> svc: createTournament()
+  svc -> db: INSERT tournaments
+  db --> svc: created tournament
+  svc --> api: tournamentId
+  api --> playerA: 201 Created
+end
+
+group トーナメント一覧取得
+  playerB -> api: GET /tournaments
+  api -> svc: listTournaments()
+  svc -> db: SELECT tournaments
+  db --> svc: tournaments
+  svc --> api: tournaments
+  api --> playerB: 200 OK
+end
+
+group トーナメント詳細取得
+  playerA -> api: GET /tournaments/{tournamentId}
+  api -> svc: getTournament()
+  svc -> db: SELECT tournament detail
+  db --> svc: tournament detail
+  svc --> api: tournament detail
+  api --> playerA: 200 OK
+end
+
+group 参加登録
+  playerB -> api: POST /tournaments/{tournamentId}/participants
+  api -> svc: addParticipant()
+  svc -> db: INSERT participant
+  db --> svc: participant added
+  svc --> api: participantId
+  api --> playerB: 201 Created
+end
+
+group トーナメント開始
+  alt 手動開始（開始ボタン）
+    playerA -> api: POST /tournaments/{tournamentId}/start
+    api -> svc: startTournament()
+  else 自動開始（募集人数が上限に到達）
+    svc -> db: COUNT participants
+    db --> svc: count reached
+    svc -> svc: startTournament()
+  end
+  svc -> db: UPDATE tournament status
+  db --> svc: status updated
+  svc --> api: started
+  api --> playerA: 200 OK
+  note right of svc
+    トーナメント開始直後に
+    シード以外の1回戦を選定して開始通知
+  end note
+  loop round1 (non-seed matches)
+    svc -> db: SELECT round1 match to start
+    db --> svc: matchId
+    svc -> db: UPDATE match status = READY
+    db --> svc: status updated
+    svc -> api: notifyMatchStart(matchId)
+    api --> playerA: notify (matchId, wsUrl)
+    api --> playerB: notify (matchId, wsUrl)
+  end
+end
+
+group 試合開始
+  note right of svc
+    試合状態を監視し、次ラウンドの組み合わせが
+    決まり次第、順次試合開始通知を送る
+  end note
+  loop while tournament ongoing
+    svc -> db: SELECT completed matches
+    db --> svc: results
+    svc -> db: CREATE/UPDATE next round matches
+    db --> svc: next round matchIds
+    loop each matchId
+      svc -> db: UPDATE match status = READY
+      db --> svc: status updated
+      svc -> api: notifyMatchStart(matchId)
+      api --> playerA: notify (matchId, wsUrl)
+      api --> playerB: notify (matchId, wsUrl)
+      note right of api
+        クライアントは matchId / wsUrl を受け取り、
+        WebSocketへ接続してリアルタイムへ遷移
+      end note
+    end
+  end
+end
+
+@enduml
