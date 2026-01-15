@@ -32,7 +32,6 @@ model Statuses {
 }
 
 /// ユーザー情報を管理するテーブル
-/// 認証情報は Accounts テーブルに分離し、プロフィール情報のみを管理します
 model Users {
   id                 Int          @id @default(autoincrement())
   
@@ -63,7 +62,7 @@ model WaitingRooms {
   id              Int                 @id @default(autoincrement())
   
   statusId        Int                 /// 待機室のステータス（Statusesテーブルへの参照）
-  name            String              /// 部屋名
+  name            String              @unique /// 部屋名
   adminUserId     Int                 /// 部屋の管理者（作成者）
   
   createdAt       DateTime            @default(now())
@@ -91,9 +90,9 @@ model Games {
   
   statusId        Int               /// 試合の進行状況（Statusesテーブルへの参照）
   tournamentId    Int               /// 所属トーナメントID
-  round           Int               @default(1) /// 何回戦か (1: 1回戦, 2: 2回戦...)
-  order           Int               @default(1) /// そのラウンド内の何試合目か
-  playerNum       Int               @default(2) /// 参加人数（基本は2）
+  round           Int               /// 何回戦か (1: 1回戦, 2: 2回戦...)
+  order           Int               /// そのラウンド内の何試合目か
+  playerNum       Int               /// 参加人数（基本は2）
   gameTypeId      Int
   winnerId        Int?              /// 勝者のユーザーID（試合終了までNULL）
   
@@ -119,7 +118,7 @@ model PlayerScores {
   statusId        Int               /// スコアのステータス（Statusesテーブルへの参照）
   gameId          Int               /// 対象の試合ID
   userId          Int               /// プレイヤーのユーザーID
-  score           Int               @default(0) /// 獲得スコア
+  score           Int               /// 獲得スコア
   
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @default(now()) @updatedAt
