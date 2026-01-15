@@ -2,25 +2,13 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
   output   = "../generated/prisma"
 }
 
 datasource db {
   provider = "sqlite"
   url      = env("DATABASE_URL")
-}
-
-// ------------------------------------------------------
-// Enums (列挙型)
-// ------------------------------------------------------
-
-/// 認証プロバイダーの種類
-enum AuthProvider {
-  google   // Google OAuth
-  intra42  // 42 Intra OAuth
-  github   // GitHub OAuth
-  local    // ローカル認証（Email/Password）
 }
 
 // ------------------------------------------------------
@@ -44,48 +32,27 @@ model Statuses {
 }
 
 /// ユーザー情報を管理するテーブル
-/// 認証情報は Accounts テーブルに分離し、プロフィール情報のみを管理します
 model Users {
   id                 Int          @id @default(autoincrement())
   
   email              String       @unique /// メールアドレス（システム内で一意）
-  name               String       /// 氏名（実名など）
-  nickname           String       /// 表示名
-  pictureURL         String?      /// アバター画像のURL
+  name               String       /// 氏名（42のintra名が入る想定）
+  nickname           String       /// 表示名（後から変更可能）
+  pictureURL         String?      /// アバター画像のURL（後から変更可能）
   statusId           Int          /// アカウント状態（Statusesテーブルへの参照）
 
-  // --- Two-factor authentication (2FA) ---
-  twoFactorSecret    String?      /// 2FA用のTOTP秘密鍵（Base32文字列）
-  isTwoFactorEnabled Boolean      @default(false) /// 2FA有効化フラグ
-  
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @default(now()) @updatedAt
 }
 
-/// 外部認証プロバイダー（OAuth）のアカウント情報を管理するテーブル
-/// 1人のユーザーが複数の認証方法（Google, 42, GitHubなど）を持てるように設計
-model Accounts {
-  id                Int      @id @default(autoincrement())
-
-  statusId          Int          /// アカウント連携のステータス（Statusesテーブルへの参照）
-  userId            Int          /// 紐付くユーザーのID (Users.id)
-  
-  provider          AuthProvider /// 認証プロバイダーの種類
-  providerAccountId String       /// プロバイダー側でのユーザーID (sub, id等)
-
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  /// 同じプロバイダーで同じアカウントIDが重複しないように制約を設定
-  @@unique([provider, providerAccountId])
-}
 
 /// トーナメント情報を管理するテーブル
 model Tournaments {
   id              Int               @id @default(autoincrement())
   
   statusId        Int               /// トーナメントの進行状況（Statusesテーブルへの参照）
-  
+  winnerId        Int?              /// 勝者のユーザーID（試合終了までNULL）
+
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @default(now()) @updatedAt
 }
@@ -95,7 +62,7 @@ model WaitingRooms {
   id              Int                 @id @default(autoincrement())
   
   statusId        Int                 /// 待機室のステータス（Statusesテーブルへの参照）
-  name            String              /// 部屋名
+  name            String              @unique /// 部屋名
   adminUserId     Int                 /// 部屋の管理者（作成者）
   
   createdAt       DateTime            @default(now())
@@ -123,9 +90,9 @@ model Games {
   
   statusId        Int               /// 試合の進行状況（Statusesテーブルへの参照）
   tournamentId    Int               /// 所属トーナメントID
-  round           Int               @default(1) /// 何回戦か (1: 1回戦, 2: 2回戦...)
-  order           Int               @default(1) /// そのラウンド内の何試合目か
-  playerNum       Int               @default(2) /// 参加人数（基本は2）
+  round           Int               /// 何回戦か (1: 1回戦, 2: 2回戦...)
+  order           Int               /// そのラウンド内の何試合目か
+  playerNum       Int               /// 参加人数（基本は2）
   gameTypeId      Int
   winnerId        Int?              /// 勝者のユーザーID（試合終了までNULL）
   
@@ -151,7 +118,7 @@ model PlayerScores {
   statusId        Int               /// スコアのステータス（Statusesテーブルへの参照）
   gameId          Int               /// 対象の試合ID
   userId          Int               /// プレイヤーのユーザーID
-  score           Int               @default(0) /// 獲得スコア
+  score           Int               /// 獲得スコア
   
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @default(now()) @updatedAt
