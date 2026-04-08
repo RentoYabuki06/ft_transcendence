@@ -10,11 +10,28 @@
     "preview": "vite preview",
     "lint": "tsc --noEmit"
   },
-	"devDependencies": {
-		"typescript": "^5.9.3",
-    "vite": "^7.2.4",
-    "tailwindcss": "^4.1.17",
+  "devDependencies": {
     "@tailwindcss/vite": "^4.1.17",
-		"@types/node": "^24.10.1"
-	}
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "msw": "^2.13.0",
+    "tailwindcss": "^4.1.17",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.4"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^9.1.0",
+    "@babylonjs/gui": "^9.1.0",
+    "@babylonjs/loaders": "^9.1.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.14.0"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
+  }
 }
