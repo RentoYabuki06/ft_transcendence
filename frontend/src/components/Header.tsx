@@ -1,0 +1,121 @@
+import { useState } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
+
+export function Header() {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+    setMenuOpen(false);
+  };
+
+  const navItems = [
+    { path: '/dashboard', label: 'ダッシュボード' },
+    { path: '/ranking', label: 'ランキング' },
+    { path: '/matching', label: 'リモート対戦' },
+    { path: '/profile/edit', label: 'プロフィール編集' },
+  ];
+
+  const isActive = (path: string) => location.pathname === path;
+
+  return (
+    <header className="fixed top-0 left-0 right-0 z-50">
+      <div
+        className="flex items-center justify-between px-6 py-3"
+        style={{
+          background: 'linear-gradient(180deg, rgba(5,10,24,0.95) 0%, rgba(5,10,24,0.8) 100%)',
+          borderBottom: '1px solid rgba(0,212,255,0.1)',
+          backdropFilter: 'blur(12px)',
+        }}
+      >
+        {/* Logo */}
+        <Link to="/dashboard" className="flex items-center gap-2 group">
+          <div
+            className="font-display text-2xl font-bold tracking-wider"
+            style={{
+              background: 'linear-gradient(135deg, #00d4ff, #8b5cf6)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+            }}
+          >
+            Pong
+          </div>
+          <div className="w-2 h-2 rounded-full bg-cosmic-cyan animate-glow-pulse" />
+        </Link>
+
+        {/* Desktop Nav */}
+        <nav className="hidden md:flex items-center gap-1">
+          {navItems.map((item) => (
+            <Link
+              key={item.path}
+              to={item.path}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${
+                isActive(item.path)
+                  ? 'text-cosmic-cyan bg-cosmic-cyan/10 border border-cosmic-cyan/20'
+                  : 'text-star-white/60 hover:text-star-white hover:bg-white/5'
+              }`}
+            >
+              {item.label}
+            </Link>
+          ))}
+          <button
+            onClick={handleLogout}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-cosmic-red/70 hover:text-cosmic-red hover:bg-cosmic-red/10 transition-all duration-300 ml-2"
+          >
+            ログアウト
+          </button>
+        </nav>
+
+        {/* Hamburger */}
+        <button
+          className="md:hidden flex flex-col gap-1.5 p-2"
+          onClick={() => setMenuOpen(!menuOpen)}
+        >
+          <span className={`block w-6 h-0.5 bg-cosmic-cyan transition-all duration-300 ${menuOpen ? 'rotate-45 translate-y-2' : ''}`} />
+          <span className={`block w-6 h-0.5 bg-cosmic-cyan transition-all duration-300 ${menuOpen ? 'opacity-0' : ''}`} />
+          <span className={`block w-6 h-0.5 bg-cosmic-cyan transition-all duration-300 ${menuOpen ? '-rotate-45 -translate-y-2' : ''}`} />
+        </button>
+      </div>
+
+      {/* Mobile menu */}
+      {menuOpen && (
+        <div
+          className="md:hidden absolute top-full left-0 right-0 animate-slide-in"
+          style={{
+            background: 'rgba(5,10,24,0.95)',
+            borderBottom: '1px solid rgba(0,212,255,0.1)',
+            backdropFilter: 'blur(16px)',
+          }}
+        >
+          <nav className="flex flex-col p-4 gap-1">
+            {navItems.map((item) => (
+              <Link
+                key={item.path}
+                to={item.path}
+                onClick={() => setMenuOpen(false)}
+                className={`px-4 py-3 rounded-lg text-sm font-medium transition-all ${
+                  isActive(item.path)
+                    ? 'text-cosmic-cyan bg-cosmic-cyan/10'
+                    : 'text-star-white/60 hover:text-star-white hover:bg-white/5'
+                }`}
+              >
+                {item.label}
+              </Link>
+            ))}
+            <button
+              onClick={handleLogout}
+              className="px-4 py-3 rounded-lg text-sm font-medium text-cosmic-red/70 hover:text-cosmic-red hover:bg-cosmic-red/10 transition-all text-left"
+            >
+              ログアウト
+            </button>
+          </nav>
+        </div>
+      )}
+    </header>
+  );
+}
