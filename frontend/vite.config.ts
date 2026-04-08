@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import tailwindcss from '@tailwindcss/vite'
+import react from '@vitejs/plugin-react'
 
 /*
 環境変数チェッカー（空かどうかのみを判定）
@@ -31,6 +32,7 @@ viteの設定オブジェクト
 */
 export default defineConfig({
   plugins: [
+    react(),
     tailwindcss(),
   ],
   server: {
@@ -39,7 +41,7 @@ export default defineConfig({
     watch: {
       // ホストOSのファイルシステムイベントはDockerコンテナに届かない
       // イベントに頼らずチェックする必要がある
-      usePolling: true,	
+      usePolling: true,
     },
     proxy: {
       // []で囲うことで計算プロパティ名に（動的に決定）
