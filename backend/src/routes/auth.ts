@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import bcrypt from 'bcryptjs'
+import speakeasy from 'speakeasy'
 import axios from 'axios'
 import prisma from '../lib/prisma.js'
 import { signToken } from '../lib/auth.js'
@@ -84,6 +85,49 @@ export async function authRoutes(fastify: FastifyInstance) {
     if (!valid) {
       return reply.code(401).send({ message: 'メールアドレスまたはパスワードが正しくありません' })
     }
+
+    // 2FA が有効な場合は仮トークンを返し、チャレンジを要求
+    if (user.isTwoFactorEnabled) {
+      const tempToken = signToken({ userId: user.id, email: user.email, twoFaPending: true } as any)
+      return reply.send({ requires2fa: true, tempToken })
+    }
+
+    const token = signToken({ userId: user.id, email: user.email })
+    const userResponse = await buildUserResponse(user.id)
+    return reply.send({ token, user: userResponse })
+  })
+
+  // POST /auth/2fa/challenge — 2FA ログインチャレンジ
+  fastify.post('/auth/2fa/challenge', async (request, reply) => {
+    const { tempToken, code } = request.body as { tempToken?: string; code?: string }
+    if (!tempToken || !code) {
+      return reply.code(400).send({ message: 'tempToken と code は必須です' })
+    }
+
+    let payload: any
+    try {
+      const { verifyToken } = await import('../lib/auth.js')
+      payload = verifyToken(tempToken)
+    } catch {
+      return reply.code(401).send({ message: 'トークンが無効または期限切れです' })
+    }
+
+    if (!payload.twoFaPending) {
+      return reply.code(400).send({ message: '2FA チャレンジが不要なトークンです' })
+    }
+
+    const user = await prisma.users.findUnique({ where: { id: payload.userId } })
+    if (!user || !user.twoFactorSecret) {
+      return reply.code(401).send({ message: '2FA が設定されていません' })
+    }
+
+    const valid = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: 'base32',
+      token: code,
+      window: 1,
+    })
+    if (!valid) return reply.code(401).send({ message: 'コードが正しくありません' })
 
     const token = signToken({ userId: user.id, email: user.email })
     const userResponse = await buildUserResponse(user.id)

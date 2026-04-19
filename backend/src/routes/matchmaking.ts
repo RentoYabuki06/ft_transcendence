@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import prisma from '../lib/prisma.js'
 import { authenticate } from '../lib/middleware.js'
+import { notifyMatchFound } from './websocket.js'
 
 export async function matchmakingRoutes(fastify: FastifyInstance) {
   // POST /matchmaking/join
@@ -50,17 +51,35 @@ export async function matchmakingRoutes(fastify: FastifyInstance) {
           data: { statusId: matchedStatus.id },
         })
 
-        // Games レコード作成
-        await prisma.games.create({
+        // Games レコード作成（PlayerScores も同時に作成）
+        const game = await prisma.games.create({
           data: {
             statusId: gameStatus.id,
-            tournamentId: 0,
             gameTypeId: gameType?.id ?? 1,
             playerNum: 2,
           },
         })
 
-        return reply.send({ waitingRoomId: existingRoom.id, matched: true })
+        const opponentId = participants[0].userId
+        await prisma.playerScores.createMany({
+          data: [
+            { gameId: game.id, userId, statusId: gameStatus.id },
+            { gameId: game.id, userId: opponentId, statusId: gameStatus.id },
+          ],
+        })
+
+        // WebSocket でマッチング成立を通知
+        const meUser = await prisma.users.findUnique({ where: { id: userId } })
+        const oppUser = await prisma.users.findUnique({ where: { id: opponentId } })
+        notifyMatchFound(
+          userId,
+          opponentId,
+          game.id,
+          { id: userId, nickname: meUser?.nickname ?? '', avatarUrl: meUser?.pictureURL ?? null },
+          { id: opponentId, nickname: oppUser?.nickname ?? '', avatarUrl: oppUser?.pictureURL ?? null },
+        )
+
+        return reply.send({ waitingRoomId: existingRoom.id, matched: true, gameId: game.id })
       }
     }
 

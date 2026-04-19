@@ -73,11 +73,25 @@ model Accounts {
 /// トーナメント情報を管理するテーブル
 model Tournaments {
   id              Int               @id @default(autoincrement())
-  
+
   statusId        Int               /// トーナメントの進行状況（Statusesテーブルへの参照）
-  
+  name            String            /// トーナメント名
+  createdBy       Int               /// 作成者ユーザーID
+  maxParticipants Int               @default(8) /// 最大参加人数（4 or 8）
+
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @default(now()) @updatedAt
+}
+
+/// トーナメント参加者テーブル
+model TournamentParticipants {
+  id           Int      @id @default(autoincrement())
+  tournamentId Int
+  userId       Int
+  alias        String   /// トーナメント内の表示名（ニックネーム）
+  createdAt    DateTime @default(now())
+
+  @@unique([tournamentId, userId])
 }
 
 /// 待機室（マッチング待ち）テーブル
@@ -112,7 +126,7 @@ model Games {
   id              Int               @id @default(autoincrement())
   
   statusId        Int               /// 試合の進行状況（Statusesテーブルへの参照）
-  tournamentId    Int               /// 所属トーナメントID
+  tournamentId    Int?              /// 所属トーナメントID（通常対戦はNULL）
   round           Int               @default(1) /// 何回戦か (1: 1回戦, 2: 2回戦...)
   order           Int               @default(1) /// そのラウンド内の何試合目か
   playerNum       Int               @default(2) /// 参加人数（基本は2）

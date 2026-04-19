@@ -5,6 +5,7 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import multipart from '@fastify/multipart'
 import staticFiles from '@fastify/static'
+import websocketPlugin from '@fastify/websocket'
 import prisma from './src/lib/prisma.js'
 import { authRoutes } from './src/routes/auth.js'
 import { userRoutes } from './src/routes/users.js'
@@ -13,6 +14,9 @@ import { gameRoutes } from './src/routes/games.js'
 import { matchmakingRoutes } from './src/routes/matchmaking.js'
 import { achievementRoutes } from './src/routes/achievements.js'
 import { twofaRoutes } from './src/routes/twofa.js'
+import { tournamentRoutes } from './src/routes/tournaments.js'
+import { websocketRoutes } from './src/routes/websocket.js'
+import { legalRoutes } from './src/routes/legal.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -34,6 +38,9 @@ await server.register(multipart, { limits: { fileSize: 5 * 1024 * 1024 } })
 const uploadsDir = path.resolve(__dirname, 'uploads')
 await server.register(staticFiles, { root: uploadsDir, prefix: '/uploads/' })
 
+// WebSocket
+await server.register(websocketPlugin)
+
 // --- Health / Ping ---
 server.get('/health', async (_req, reply) => {
   try {
@@ -46,7 +53,7 @@ server.get('/health', async (_req, reply) => {
 
 server.get('/ping', async () => ({ pong: 'it worked!' }))
 
-// --- Routes ---
+// --- REST Routes ---
 await server.register(authRoutes)
 await server.register(userRoutes)
 await server.register(friendRoutes)
@@ -54,6 +61,11 @@ await server.register(gameRoutes)
 await server.register(matchmakingRoutes)
 await server.register(achievementRoutes)
 await server.register(twofaRoutes)
+await server.register(tournamentRoutes)
+await server.register(legalRoutes)
+
+// --- WebSocket Routes ---
+await server.register(websocketRoutes)
 
 // --- Start ---
 const port = parseInt(process.env.PORT || '3000', 10)

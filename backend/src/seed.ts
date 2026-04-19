@@ -2,15 +2,18 @@ import 'dotenv/config'
 import prisma from './lib/prisma.js'
 
 const statuses = [
-  { category: 'user',     name: 'active',    description: 'アクティブなユーザー' },
-  { category: 'user',     name: 'banned',    description: 'BANされたユーザー' },
-  { category: 'game',     name: 'pending',   description: '開始前の試合' },
-  { category: 'game',     name: 'ongoing',   description: '進行中の試合' },
-  { category: 'game',     name: 'finished',  description: '終了した試合' },
-  { category: 'gametype', name: 'standard',  description: '標準ゲームタイプ' },
-  { category: 'waitroom', name: 'waiting',   description: 'マッチング待機中' },
-  { category: 'waitroom', name: 'matched',   description: 'マッチング成立' },
-  { category: 'account',  name: 'active',    description: 'アクティブなアカウント連携' },
+  { category: 'user',       name: 'active',   description: 'アクティブなユーザー' },
+  { category: 'user',       name: 'banned',   description: 'BANされたユーザー' },
+  { category: 'game',       name: 'pending',  description: '開始前の試合' },
+  { category: 'game',       name: 'ongoing',  description: '進行中の試合' },
+  { category: 'game',       name: 'finished', description: '終了した試合' },
+  { category: 'gametype',   name: 'standard', description: '標準ゲームタイプ' },
+  { category: 'waitroom',   name: 'waiting',  description: 'マッチング待機中' },
+  { category: 'waitroom',   name: 'matched',  description: 'マッチング成立' },
+  { category: 'account',    name: 'active',   description: 'アクティブなアカウント連携' },
+  { category: 'tournament', name: 'pending',  description: '参加者募集中' },
+  { category: 'tournament', name: 'ongoing',  description: '進行中のトーナメント' },
+  { category: 'tournament', name: 'finished', description: '終了したトーナメント' },
 ]
 
 const achievements = [
