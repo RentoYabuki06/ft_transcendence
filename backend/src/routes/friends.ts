@@ -51,6 +51,9 @@ export async function friendRoutes(fastify: FastifyInstance) {
       await prisma.friendships.create({ data: { userId: targetId, friendId: userId } })
     }
 
+    const { checkAndUnlockAchievements } = await import('./websocket.js')
+    await checkAndUnlockAchievements(userId)
+
     return reply.code(201).send(null)
   })
 

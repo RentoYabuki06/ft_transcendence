@@ -31,10 +31,21 @@ export async function matchmakingRoutes(fastify: FastifyInstance) {
       return reply.send({ waitingRoomId: alreadyWaiting.waitingRoomId })
     }
 
-    // 既存の waiting 部屋を探す（自分以外が作ったもの）
-    const existingRoom = await prisma.waitingRooms.findFirst({
-      where: { statusId: waitingStatus.id, adminUserId: { not: userId } },
+    // 待機中かつ参加者が1人いる部屋を探す（自分以外が作ったもの）
+    const waitingParticipants = await prisma.waitingRoomParticipants.findMany({
+      where: { userId: { not: userId } },
     })
+    const candidateRoomIds = [...new Set(waitingParticipants.map(p => p.waitingRoomId))]
+
+    const existingRoom = candidateRoomIds.length > 0
+      ? await prisma.waitingRooms.findFirst({
+          where: {
+            id: { in: candidateRoomIds },
+            statusId: waitingStatus.id,
+            adminUserId: { not: userId },
+          },
+        })
+      : null
 
     if (existingRoom) {
       const participants = await prisma.waitingRoomParticipants.findMany({

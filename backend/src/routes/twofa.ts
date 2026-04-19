@@ -47,6 +47,10 @@ export async function twofaRoutes(fastify: FastifyInstance) {
     if (!valid) return reply.code(401).send({ message: 'コードが正しくありません' })
 
     await prisma.users.update({ where: { id: userId }, data: { isTwoFactorEnabled: true } })
+
+    const { checkAndUnlockAchievements } = await import('./websocket.js')
+    await checkAndUnlockAchievements(userId)
+
     return reply.send({ message: '2FA が有効になりました' })
   })
 
