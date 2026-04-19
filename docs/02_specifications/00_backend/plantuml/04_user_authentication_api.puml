@@ -1,0 +1,57 @@
+@startuml
+title ユーザ認証API（詳細：42 OAuth）
+
+actor       クライアント as client
+participant "ユーザ認証API" as auth_api
+participant "42 OAuth" as ft_oauth
+participant "認証" as auth
+database    "DB" as db
+
+== サインイン／サインアップ（42 OAuth） ==
+group 42ログイン開始（GET /auth/42）
+  client -> auth_api: 42ログイン開始（ログイン/登録）\nGET /auth/42
+    auth_api -> ft_oauth: 認可エンドポイントへリダイレクトURL生成
+    auth_api <-- ft_oauth: 認可URL
+  client <-- auth_api: 302 Redirect（42認可画面へ）
+end group
+
+group 42コールバック（GET /auth/42/callback）
+  client -> auth_api: 認可コード受領\nGET /auth/42/callback?code=...
+    auth_api -> ft_oauth: トークン交換（code -> access_token）
+    auth_api <-- ft_oauth: access_token
+
+    auth_api -> ft_oauth: ユーザー情報取得（access_token）
+    auth_api <-- ft_oauth: 42ユーザー情報（id/login/email...）
+
+    auth_api -> auth: ユーザー照合（42ユーザーID）
+      auth -> db: SELECT user by ft_user_id
+      auth <-- db: user / not found
+    auth_api <-- auth: user / not found
+
+  alt 既存ユーザー（サインイン）
+    auth_api -> auth_api: JWT発行（sub=userId）
+    client <-- auth_api: 200 OK\n{ token }
+  else 新規ユーザー（サインアップ）
+    auth_api -> auth: ユーザー作成（42情報で登録）
+      auth -> db: INSERT user（ft_user_id, name, nickname...）
+      auth <-- db: OK（userId）
+    auth_api <-- auth: OK（userId）
+
+    auth_api -> auth_api: JWT発行（sub=userId）
+    client <-- auth_api: 201 Created\n{ token }
+  end alt
+end group
+
+== サインアウト ==
+group サインアウト（POST /auth/signout）
+  client -> auth_api: サインアウト\nAuthorization: Bearer <JWT>
+    auth_api -> auth_api: JWT検証
+  alt JWTが無効／期限切れ
+    client <-- auth_api: 401 Unauthorized
+  else OK
+    note over auth_api: JWTは基本サーバに保持しない（ステートレス）\nクライアント側でトークンを破棄する
+    client <-- auth_api: 200 OK
+  end alt
+end group
+
+@enduml
