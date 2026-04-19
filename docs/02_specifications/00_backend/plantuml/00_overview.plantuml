@@ -1,0 +1,61 @@
+@startuml
+title 全体像
+
+actor       クライアント  as client
+participant ユーザ認証API as user_authentication_api
+participant ユーザ情報API as user_information_api
+participant 待機室API     as wait_room_api
+participant 試合中情報API as gaming_information_api
+participant 結果情報API   as result_information_api
+participant 成績情報API   as achievement_information_api
+
+client -> user_authentication_api: ログイン処理などを行う
+note right
+  signin / signup / signout などの細かい処理は別の詳細仕様書を参照
+end note
+client <-- user_authentication_api: ログイン成功
+
+client ->  user_information_api: ユーザ情報を取得
+client <-- user_information_api:
+
+alt 部屋を作成する場合
+  group 部屋作成
+    client ->  wait_room_api: 部屋作成依頼を投げる
+    client <-- wait_room_api: 部屋IDを取得する
+
+    client <-  wait_room_api: 他ユーザ参加
+    client <-  wait_room_api: 他ユーザ退場
+    note over wait_room_api: 参加と退場が続く
+
+    client ->  wait_room_api: 参加締め切り
+    note over wait_room_api: トーナメント上限人数に達していなくても\n締め切ることができる
+    client <-- wait_room_api: 承諾
+  end group
+else 部屋に参加する場合
+  group 部屋参加
+    client ->  wait_room_api: 現在作成されている部屋情報を取得
+    client <-- wait_room_api:
+    client ->  wait_room_api: 入る部屋ID
+    client <-- wait_room_api:
+  end group
+end alt
+
+group 試合開始
+  client ->  gaming_information_api: 自分の試合情報を取得(request: トーナメントID ...)
+  note over gaming_information_api: マレットの位置 / パックの反射位置と時間 などの情報を\nWebsocket を利用してリアルタイムで処理させる
+  client <-- gaming_information_api: request の応答
+
+  client <- gaming_information_api: ゲーム終了
+end group
+
+group 試合結果
+  client ->  result_information_api: 結果を取得
+  client <-- result_information_api:
+end group
+
+group 戦績
+  client ->  achievement_information_api: 特定の対戦相手との情報を取得
+  client <-- achievement_information_api:
+end group
+
+@enduml

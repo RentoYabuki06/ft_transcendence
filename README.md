@@ -4,6 +4,7 @@
 
 1. [Git 運用ルール](./docs/00_git-rules/README.md)
 2. [要件定義](./docs/01_requirements/README.md)
+3. [詳細仕様](./docs/02_specifications/README.md)
 
 ## 環境構築
 ### クローン方法

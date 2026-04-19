@@ -1,0 +1,169 @@
+@startuml
+title 試合中WebSocket通信API
+
+actor "プレイヤーA\n（参加者）" as playerA
+actor "プレイヤーB\n（参加者）" as playerB
+participant "WebSocket Gateway" as ws
+participant "Game Service" as game
+participant "Match Engine" as engine
+database "DB" as db
+
+group WebSocket接続と試合参加
+  playerA -> ws: connect ws://.../matches/{matchId}
+  playerB -> ws: connect ws://.../matches/{matchId}
+  ws -> game: joinMatch(playerId, matchId)
+  game -> db: SELECT match/players
+  db --> game: match info
+  game --> ws: joined
+  ws --> playerA: event: match.joined
+  note right of ws
+    payload:
+    {
+      "event": "match.joined",
+      "matchId": "...",
+      "players": [
+        {"id":"p1","name":"Player A"},
+        {"id":"p2","name":"Player B"}
+      ],
+      "serverTime": 1730000000
+    }
+  end note
+  ws --> playerB: event: match.joined
+end
+
+group 試合開始
+  ws -> game: event: match.start (host/auto)
+  game -> engine: startMatch(matchId)
+  engine --> game: started
+  game --> ws: event: match.started
+  ws --> playerA: event: match.started
+  note right of ws
+    payload:
+    {
+      "event": "match.started",
+      "matchId": "...",
+      "seed": 12345,
+      "startAt": 1730000010
+    }
+  end note
+  ws --> playerB: event: match.started
+end
+
+group 試合中の入力・位置更新
+  loop each tick (e.g. 60fps)
+    playerA -> ws: event: input.update {paddleY}
+    note right of playerA
+      payload:
+      {
+        "event": "input.update",
+        "matchId": "...",
+        "playerId": "p1",
+        "paddleY": 0.42,
+        "clientTime": 1730000011
+      }
+    end note
+    playerB -> ws: event: input.update {paddleY}
+    ws -> engine: applyInputs()
+    engine -> engine: updateBallAndScore()
+    engine --> ws: event: state.update {ball, paddles, score}
+    ws --> playerA: event: state.update
+    note right of ws
+      payload:
+      {
+        "event": "state.update",
+        "matchId": "...",
+        "tick": 1024,
+        "ball": {"x":0.5,"y":0.7,"vx":0.01,"vy":-0.02},
+        "paddles": {"p1":0.42,"p2":0.58},
+        "score": {"p1":2,"p2":3},
+        "serverTime": 1730000012
+      }
+    end note
+    ws --> playerB: event: state.update
+  end
+end
+
+group 切断時の扱い（即時敗北）
+  playerA -x ws: disconnect
+  ws -> game: forfeit(playerId)
+  game -> db: UPDATE match result (forfeit)
+  db --> game: saved
+  game --> ws: event: match.forfeited
+  ws --> playerB: event: match.forfeited
+  note right of ws
+    payload:
+    {
+      "event": "match.forfeited",
+      "matchId": "...",
+      "loserId": "p1",
+      "winnerId": "p2",
+      "reason": "disconnect",
+      "forfeitedAt": 1730000015
+    }
+  end note
+end
+
+group 試合終了
+  engine --> game: match.finished {winner, score}
+  game -> db: UPDATE match result
+  db --> game: saved
+  game --> ws: event: match.finished
+  alt 決勝戦（両者リザルト）
+    ws --> playerA: event: match.finished.result
+    note right of ws
+      payload:
+      {
+        "event": "match.finished.result",
+        "matchId": "...",
+        "winnerId": "p1",
+        "score": {"p1":5,"p2":3},
+        "result": "win",
+        "isFinal": true,
+        "finishedAt": 1730000020
+      }
+    end note
+    ws --> playerB: event: match.finished.result
+    note right of ws
+      payload:
+      {
+        "event": "match.finished.result",
+        "matchId": "...",
+        "winnerId": "p1",
+        "score": {"p1":5,"p2":3},
+        "result": "lose",
+        "isFinal": true,
+        "finishedAt": 1730000020
+      }
+    end note
+  else 決勝以外（勝者は待機）
+    ws --> playerA: event: match.finished.waiting
+    note right of ws
+      payload:
+      {
+        "event": "match.finished.waiting",
+        "matchId": "...",
+        "winnerId": "p1",
+        "score": {"p1":5,"p2":3},
+        "nextMatchId": "next-1",
+        "status": "waiting",
+        "isFinal": false,
+        "finishedAt": 1730000020
+      }
+    end note
+    ws --> playerB: event: match.finished.result
+    note right of ws
+      payload:
+      {
+        "event": "match.finished.result",
+        "matchId": "...",
+        "winnerId": "p1",
+        "score": {"p1":5,"p2":3},
+        "result": "lose",
+        "isFinal": false,
+        "finishedAt": 1730000020
+      }
+    end note
+  end
+end
+
+@enduml

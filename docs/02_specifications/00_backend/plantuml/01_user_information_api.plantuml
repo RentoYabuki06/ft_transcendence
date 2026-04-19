@@ -1,0 +1,41 @@
+@startuml
+title ユーザープロフィールAPI（詳細）
+
+actor       クライアント as client
+participant "ユーザープロフィールAPI" as user_api
+participant "プロフィール" as profile
+database    "DB" as db
+
+== プロフィール取得（自分） ==
+group 自分のプロフィール取得（GET /users/me）
+  client -> user_api: 自分のプロフィールを取得\nAuthorization: Bearer <JWT>
+    user_api -> user_api: JWT検証
+    user_api -> profile: プロフィール取得（自分）
+      profile -> db: SELECT user profile
+      profile <-- db: プロフィール情報
+    user_api <-- profile: プロフィール
+  client <-- user_api: プロフィール
+end group
+
+== プロフィール取得（相手） ==
+group 相手のプロフィール取得（GET /users/{userId}）
+  client -> user_api: 相手のプロフィールを取得
+    user_api -> profile: プロフィール取得（相手）
+      profile -> db: SELECT public profile
+      profile <-- db: プロフィール情報
+    user_api <-- profile: プロフィール
+  client <-- user_api: プロフィール
+end group
+
+== プロフィール更新 ==
+group プロフィール更新（PATCH /users/me）
+  client -> user_api: プロフィール更新\nAuthorization: Bearer <JWT>
+    user_api -> user_api: JWT検証
+    user_api -> profile: バリデーション／重複チェック
+      profile -> db: UPDATE profile（指定項目のみ）
+      profile <-- db: OK
+    user_api <-- profile: OK
+  client <-- user_api: 更新後プロフィール
+end group
+
+@enduml
