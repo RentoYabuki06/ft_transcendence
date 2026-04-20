@@ -68,7 +68,7 @@ export function RankingPage() {
               </div>
 
               {/* Stats */}
-              <div className="hidden md:flex items-center gap-6 text-sm">
+              <div className="flex items-center gap-6 text-sm">
                 <div className="text-center">
                   <div className="font-display font-bold text-cosmic-green">{entry.wins}</div>
                   <div className="text-[10px] text-star-white/30">W</div>

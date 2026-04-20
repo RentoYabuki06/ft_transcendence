@@ -31,9 +31,18 @@ export async function matchmakingRoutes(fastify: FastifyInstance) {
       return reply.send({ waitingRoomId: alreadyWaiting.waitingRoomId })
     }
 
-    // 待機中かつ参加者が1人いる部屋を探す（自分以外が作ったもの）
+    // ブロック関係にあるユーザーを除外
+    const blocks = await prisma.blocks.findMany({
+      where: { OR: [{ userId }, { blockedId: userId }] },
+    })
+    const blockedIds = new Set<number>()
+    for (const b of blocks) {
+      blockedIds.add(b.userId === userId ? b.blockedId : b.userId)
+    }
+
+    // 待機中かつ参加者が1人いる部屋を探す（自分以外が作ったもの、ブロック関係を除外）
     const waitingParticipants = await prisma.waitingRoomParticipants.findMany({
-      where: { userId: { not: userId } },
+      where: { userId: { not: userId, notIn: [...blockedIds] } },
     })
     const candidateRoomIds = [...new Set(waitingParticipants.map(p => p.waitingRoomId))]
 

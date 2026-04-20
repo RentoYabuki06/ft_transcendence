@@ -53,32 +53,9 @@ export function Header() {
           <div className="w-2 h-2 rounded-full bg-cosmic-cyan animate-glow-pulse" />
         </Link>
 
-        {/* Desktop Nav */}
-        <nav className="hidden md:flex items-center gap-1">
-          {navItems.map((item) => (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${
-                isActive(item.path)
-                  ? 'text-cosmic-cyan bg-cosmic-cyan/10 border border-cosmic-cyan/20'
-                  : 'text-star-white/60 hover:text-star-white hover:bg-white/5'
-              }`}
-            >
-              {item.label}
-            </Link>
-          ))}
-          <button
-            onClick={handleLogout}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-cosmic-red/70 hover:text-cosmic-red hover:bg-cosmic-red/10 transition-all duration-300 ml-2"
-          >
-            LOGOUT
-          </button>
-        </nav>
-
-        {/* Hamburger */}
+        {/* Hamburger (always visible) */}
         <button
-          className="md:hidden flex flex-col gap-1.5 p-2"
+          className="flex flex-col gap-1.5 p-2"
           onClick={() => setMenuOpen(!menuOpen)}
         >
           <span className={`block w-6 h-0.5 bg-cosmic-cyan transition-all duration-300 ${menuOpen ? 'rotate-45 translate-y-2' : ''}`} />
@@ -90,7 +67,7 @@ export function Header() {
       {/* Mobile menu */}
       {menuOpen && (
         <div
-          className="md:hidden absolute top-full left-0 right-0 animate-slide-in"
+          className="absolute top-full left-0 right-0 animate-slide-in"
           style={{
             background: 'rgba(18,5,31,0.97)',
             borderBottom: '1px solid rgba(255,79,216,0.15)',
