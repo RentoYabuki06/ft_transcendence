@@ -27,9 +27,22 @@ await server.register(cors, {
   origin: [
     process.env.FRONTEND_URL || 'http://localhost:5173',
     'http://localhost:3000',
+    'https://localhost:8443',
+    'http://localhost:8080',
   ],
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization'],
+})
+
+// Fastify 標準エラーハンドラ: 本番では stack を返さない
+server.setErrorHandler((error, _request, reply) => {
+  server.log.error(error)
+  const statusCode = error.statusCode ?? 500
+  reply.code(statusCode).send({
+    message: statusCode >= 500 && process.env.NODE_ENV === 'production'
+      ? 'Internal Server Error'
+      : error.message,
+  })
 })
 
 await server.register(multipart, { limits: { fileSize: 5 * 1024 * 1024 } })

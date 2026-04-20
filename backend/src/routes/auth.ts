@@ -19,8 +19,15 @@ export async function authRoutes(fastify: FastifyInstance) {
     if (!nickname || !email || !password) {
       return reply.code(400).send({ message: 'nickname, email, password は必須です' })
     }
-    if (password.length < 8) {
-      return reply.code(400).send({ message: 'パスワードは8文字以上にしてください' })
+    if (typeof nickname !== 'string' || nickname.length < 2 || nickname.length > 20) {
+      return reply.code(400).send({ message: 'nickname は 2〜20 文字で入力してください' })
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (typeof email !== 'string' || email.length > 255 || !emailRegex.test(email)) {
+      return reply.code(400).send({ message: 'email の形式が正しくありません' })
+    }
+    if (typeof password !== 'string' || password.length < 8 || password.length > 128) {
+      return reply.code(400).send({ message: 'password は 8〜128 文字で入力してください' })
     }
 
     const existing = await prisma.users.findUnique({ where: { email } })
@@ -67,6 +74,10 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     if (!email || !password) {
       return reply.code(400).send({ message: 'email と password は必須です' })
+    }
+    if (typeof email !== 'string' || typeof password !== 'string' ||
+        email.length > 255 || password.length > 128) {
+      return reply.code(400).send({ message: '入力値が不正です' })
     }
 
     const user = await prisma.users.findUnique({ where: { email } })

@@ -23,22 +23,29 @@ export default defineConfig(({ mode }) => {
     throw new Error(`環境変数に設定されたport番号 ${port} が正しくありません`)
   }
 
+  // nginx 越しに HMR を通す場合は VITE_HMR_BEHIND_PROXY=true を設定
+  const useProxyHmr = env.VITE_HMR_BEHIND_PROXY === 'true'
+
   return {
-  plugins: [
-    react(),
-    tailwindcss(),
-  ],
-  server: {
-    host: host,
-    port: port,
-    watch: {
-      // ホストOSのファイルシステムイベントはDockerコンテナに届かない
-      // イベントに頼らずチェックする必要がある
-      usePolling: true,
-    },
-    proxy: {
-      // []で囲うことで計算プロパティ名に（動的に決定）
-      // []なしだと'apiPath'という文字列になってしまい, 変数値の'/api'などがが入らない
+    plugins: [
+      react(),
+      tailwindcss(),
+    ],
+    server: {
+      host: host,
+      port: port,
+      // nginx リバースプロキシ越しのアクセスを許可
+      allowedHosts: true,
+      ...(useProxyHmr && {
+        hmr: { clientPort: 8443, protocol: 'wss' as const },
+      }),
+      watch: {
+        // ホストOSのファイルシステムイベントはDockerコンテナに届かない
+        // イベントに頼らずチェックする必要がある
+        usePolling: true,
+      },
+      proxy: {
+        // []で囲うことで計算プロパティ名に（動的に決定）
         [apiPath]: {
           target: apiTarget,
           changeOrigin: true,
