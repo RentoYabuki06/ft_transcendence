@@ -2,7 +2,7 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
   output   = "../generated/prisma"
 }
 
@@ -12,20 +12,9 @@ datasource db {
 }
 
 // ------------------------------------------------------
-// Enums (列挙型)
-// ------------------------------------------------------
-
-/// 認証プロバイダーの種類
-enum AuthProvider {
-  google   // Google OAuth
-  intra42  // 42 Intra OAuth
-  github   // GitHub OAuth
-  local    // ローカル認証（Email/Password）
-}
-
-// ------------------------------------------------------
 // Models (テーブル定義)
 // ------------------------------------------------------
+// AuthProvider: 'google' | 'intra42' | 'github' | 'local'
 
 /// ステータスマスターテーブル
 /// 各エンティティのステータスを一元管理します
@@ -70,8 +59,9 @@ model Accounts {
   statusId          Int          /// アカウント連携のステータス（Statusesテーブルへの参照）
   userId            Int          /// 紐付くユーザーのID (Users.id)
   
-  provider          AuthProvider /// 認証プロバイダーの種類
+  provider          String       /// 認証プロバイダーの種類 ('google' | 'intra42' | 'github' | 'local')
   providerAccountId String       /// プロバイダー側でのユーザーID (sub, id等)
+  passwordHash      String?      /// ローカル認証用ハッシュ済みパスワード
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -83,11 +73,25 @@ model Accounts {
 /// トーナメント情報を管理するテーブル
 model Tournaments {
   id              Int               @id @default(autoincrement())
-  
+
   statusId        Int               /// トーナメントの進行状況（Statusesテーブルへの参照）
-  
+  name            String            /// トーナメント名
+  createdBy       Int               /// 作成者ユーザーID
+  maxParticipants Int               @default(8) /// 最大参加人数（4 or 8）
+
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @default(now()) @updatedAt
+}
+
+/// トーナメント参加者テーブル
+model TournamentParticipants {
+  id           Int      @id @default(autoincrement())
+  tournamentId Int
+  userId       Int
+  alias        String   /// トーナメント内の表示名（ニックネーム）
+  createdAt    DateTime @default(now())
+
+  @@unique([tournamentId, userId])
 }
 
 /// 待機室（マッチング待ち）テーブル
@@ -122,7 +126,7 @@ model Games {
   id              Int               @id @default(autoincrement())
   
   statusId        Int               /// 試合の進行状況（Statusesテーブルへの参照）
-  tournamentId    Int               /// 所属トーナメントID
+  tournamentId    Int?              /// 所属トーナメントID（通常対戦はNULL）
   round           Int               @default(1) /// 何回戦か (1: 1回戦, 2: 2回戦...)
   order           Int               @default(1) /// そのラウンド内の何試合目か
   playerNum       Int               @default(2) /// 参加人数（基本は2）
@@ -152,7 +156,37 @@ model PlayerScores {
   gameId          Int               /// 対象の試合ID
   userId          Int               /// プレイヤーのユーザーID
   score           Int               @default(0) /// 獲得スコア
-  
+  isWinner        Boolean           @default(false) /// 勝者フラグ
+
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @default(now()) @updatedAt
+}
+
+/// フレンド関係を管理するテーブル
+model Friendships {
+  id        Int      @id @default(autoincrement())
+  userId    Int      /// フレンド申請したユーザーID
+  friendId  Int      /// フレンドになったユーザーID
+  createdAt DateTime @default(now())
+
+  @@unique([userId, friendId])
+}
+
+/// 実績マスターテーブル
+model Achievements {
+  id          Int    @id @default(autoincrement())
+  key         String @unique /// 識別キー ('first_win', 'ten_wins', etc.)
+  name        String
+  description String
+  icon        String @default("🏆")
+}
+
+/// ユーザーが獲得した実績を管理するテーブル
+model UserAchievements {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  achievementId Int
+  unlockedAt    DateTime @default(now())
+
+  @@unique([userId, achievementId])
 }

@@ -1,106 +1,84 @@
-import Fastify, { FastifyInstance, RouteShorthandOptions } from 'fastify'
-import { PrismaClient } from '@prisma/client'
+import 'dotenv/config'
+import path from 'path'
+import { fileURLToPath } from 'url'
+import Fastify from 'fastify'
+import cors from '@fastify/cors'
+import multipart from '@fastify/multipart'
+import staticFiles from '@fastify/static'
+import websocketPlugin from '@fastify/websocket'
+import prisma from './src/lib/prisma.js'
+import { authRoutes } from './src/routes/auth.js'
+import { userRoutes } from './src/routes/users.js'
+import { friendRoutes } from './src/routes/friends.js'
+import { gameRoutes } from './src/routes/games.js'
+import { matchmakingRoutes } from './src/routes/matchmaking.js'
+import { achievementRoutes } from './src/routes/achievements.js'
+import { twofaRoutes } from './src/routes/twofa.js'
+import { tournamentRoutes } from './src/routes/tournaments.js'
+import { websocketRoutes } from './src/routes/websocket.js'
+import { legalRoutes } from './src/routes/legal.js'
 
-const server: FastifyInstance = Fastify({
-  logger: true
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+const server = Fastify({ logger: true })
+
+// --- Plugins ---
+await server.register(cors, {
+  origin: [
+    process.env.FRONTEND_URL || 'http://localhost:5173',
+    'http://localhost:3000',
+  ],
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization'],
 })
 
-const prisma = new PrismaClient()
+await server.register(multipart, { limits: { fileSize: 5 * 1024 * 1024 } })
 
+// Serve uploaded avatars
+const uploadsDir = path.resolve(__dirname, 'uploads')
+await server.register(staticFiles, { root: uploadsDir, prefix: '/uploads/' })
 
-/*
-レスポンススキーマ定義
-*/
+// WebSocket
+await server.register(websocketPlugin)
 
-// ヘルスチェックレスポンススキーマ
-const healthResponseSchema = {
-  type: 'object',
-  properties: {
-    status: { type: 'string' },
-    timestamp: { type: 'string' },
-    uptime: { type: 'number' }
-  }
-} as const
-
-const opts: RouteShorthandOptions = {
-  schema: {
-    response: {
-      200: {
-        type: 'object',
-        properties: {
-          pong: {
-            type: 'string'
-          }
-        }
-      }
-    }
-  }
-}
-
-const healthOpts: RouteShorthandOptions = {
-  schema: {
-    response: {
-      200: healthResponseSchema,
-      503: healthResponseSchema
-    }
-  }
-}
-
-// ヘルスチェックのメタデータを生成する関数
-const createHealthMetadata = () => {
-  const timestamp: Date = new Date()
-  const timestamp_string: string = timestamp.toISOString()
-  const uptime: number = process.uptime()
-  
-  return {
-    timestamp: timestamp_string,
-    uptime: uptime
-  }
-}
-
-server.get('/health', healthOpts, async (_request, reply) => {
+// --- Health / Ping ---
+server.get('/health', async (_req, reply) => {
   try {
-    // DB接続チェック
     await prisma.$queryRaw`SELECT 1`
-    
-    const metadata = createHealthMetadata()
-    
-    return { 
-      status: 'ok',
-      ...metadata
-    }
-  } catch (error) {
-    const metadata = createHealthMetadata()
-    
-    reply.code(503)
-    return {
-      status: 'error',
-      ...metadata
-    }
+    return reply.send({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() })
+  } catch {
+    return reply.code(503).send({ status: 'error', timestamp: new Date().toISOString(), uptime: process.uptime() })
   }
 })
 
-server.get('/ping', opts, async () => {
-  return { pong: 'it worked!' }
-})
+server.get('/ping', async () => ({ pong: 'it worked!' }))
 
-const start = async () => {
-  try {
-    const port: number = parseInt(process.env.PORT || '3000', 10)
-    const host: string = process.env.HOST || '0.0.0.0'
-    
-    await server.listen({ port: port, host: host })
-    
-    console.log(`Server is running on http://${host}:${port}`)
-  } catch (err) {
-    server.log.error(err, "Fatal error: Failed to start the backend server")
-    process.exit(1)
-  }
+// --- REST Routes ---
+await server.register(authRoutes)
+await server.register(userRoutes)
+await server.register(friendRoutes)
+await server.register(gameRoutes)
+await server.register(matchmakingRoutes)
+await server.register(achievementRoutes)
+await server.register(twofaRoutes)
+await server.register(tournamentRoutes)
+await server.register(legalRoutes)
+
+// --- WebSocket Routes ---
+await server.register(websocketRoutes)
+
+// --- Start ---
+const port = parseInt(process.env.PORT || '3000', 10)
+const host = process.env.HOST || '0.0.0.0'
+
+try {
+  await server.listen({ port, host })
+  console.log(`Server running on http://${host}:${port}`)
+} catch (err) {
+  server.log.error(err)
+  process.exit(1)
 }
 
-// サーバー終了時にPrisma接続をクリーンアップ
 process.on('beforeExit', async () => {
   await prisma.$disconnect()
 })
-
-start()
