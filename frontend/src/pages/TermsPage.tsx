@@ -1,10 +1,8 @@
 import { Link } from 'react-router-dom';
-import { StarField } from '../components/StarField';
 
 export function TermsPage() {
   return (
-    <div className="relative min-h-screen" style={{ background: 'var(--color-space-deep)' }}>
-      <StarField />
+    <div className="relative min-h-screen">
       <div className="relative z-10 max-w-3xl mx-auto px-4 py-16">
         <Link to="/dashboard" className="text-cosmic-cyan/50 hover:text-cosmic-cyan text-sm transition-colors mb-8 inline-block">
           戻る
