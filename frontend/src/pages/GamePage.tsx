@@ -206,10 +206,7 @@ export function GamePage() {
   }, [initGame]);
 
   return (
-    <div
-      className="min-h-screen flex flex-col items-center justify-center relative"
-      style={{ background: 'var(--color-space-deep)' }}
-    >
+    <div className="min-h-screen flex flex-col items-center justify-center relative">
       {/* Score */}
       <div className="flex items-center gap-12 mb-6">
         <div className="text-center">

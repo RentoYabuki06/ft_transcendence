@@ -1,7 +1,6 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { StarField } from '../components/StarField';
 import { api } from '../services/api';
 
 export function LoginPage() {
@@ -27,22 +26,25 @@ export function LoginPage() {
     }
   };
 
-  return (
-    <div className="relative min-h-screen flex items-center justify-center px-4" style={{ background: 'var(--color-space-deep)' }}>
-      <StarField />
+  const pongTitleStyle: CSSProperties = {
+    background: 'linear-gradient(135deg, #6ee7ff 0%, #ff4fd8 45%, #b84dff 100%)',
+    backgroundSize: '200% 200%',
+    WebkitBackgroundClip: 'text',
+    WebkitTextFillColor: 'transparent',
+    animation: 'glow-pulse 2s ease-in-out infinite',
+    filter:
+      'drop-shadow(0 0 24px rgba(255,79,216,0.45)) drop-shadow(0 0 48px rgba(184,77,255,0.35)) drop-shadow(0 0 64px rgba(110,231,255,0.2))',
+  };
 
-      <div className="relative z-10 w-full max-w-md animate-slide-in">
-        {/* Logo */}
-        <div className="text-center mb-8">
+  return (
+    <div className="relative min-h-screen flex items-center justify-center px-4 py-10 sm:px-8 lg:px-12">
+      <div className="relative z-10 w-full max-w-md sm:max-w-lg md:max-w-xl lg:max-w-2xl animate-slide-in">
+        {/* Logo（LandingPage の Pong と同じ配色） */}
+        <div className="text-center" style={{ marginBottom: '3.5rem' }}>
           <Link to="/">
             <h1
-              className="font-display text-5xl font-bold tracking-wider inline-block"
-              style={{
-                background: 'linear-gradient(135deg, #00d4ff, #8b5cf6)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-                filter: 'drop-shadow(0 0 20px rgba(0,212,255,0.3))',
-              }}
+              className="font-display text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-black tracking-widest inline-block"
+              style={pongTitleStyle}
             >
               Pong
             </h1>
@@ -50,20 +52,23 @@ export function LoginPage() {
         </div>
 
         {/* Login Card */}
-        <div className="cosmic-card">
-          <h2 className="font-display text-xl text-center text-star-white mb-6 tracking-wide">
+        <div className="cosmic-card p-8 md:p-10 lg:p-12">
+          <h2 className="font-display text-xl md:text-2xl text-center text-star-white mb-8 md:mb-10 tracking-wide">
             ログイン
           </h2>
 
           {error && (
-            <div className="mb-4 p-3 rounded-lg bg-cosmic-red/10 border border-cosmic-red/30 text-cosmic-red text-sm">
+            <div className="mb-6 md:mb-8 p-4 rounded-xl bg-cosmic-red/10 border border-cosmic-red/30 text-cosmic-red text-sm">
               {error}
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form
+            onSubmit={handleSubmit}
+            style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}
+          >
             <div>
-              <label className="block text-sm text-star-white/50 mb-1.5 font-medium">メールアドレス</label>
+              <label className="block text-sm text-star-white/50 font-medium" style={{ marginBottom: '0.625rem' }}>メールアドレス</label>
               <input
                 type="email"
                 value={email}
@@ -75,7 +80,7 @@ export function LoginPage() {
             </div>
 
             <div>
-              <label className="block text-sm text-star-white/50 mb-1.5 font-medium">パスワード</label>
+              <label className="block text-sm text-star-white/50 font-medium" style={{ marginBottom: '0.625rem' }}>パスワード</label>
               <input
                 type="password"
                 value={password}
@@ -89,7 +94,8 @@ export function LoginPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="cosmic-btn cosmic-btn-primary w-full py-3 disabled:opacity-50"
+              className="cosmic-btn cosmic-btn-primary w-full disabled:opacity-50"
+              style={{ padding: '0.875rem 1.5rem', marginTop: '1rem' }}
             >
               {isLoading ? (
                 <span className="animate-glow-pulse">接続中...</span>
@@ -100,7 +106,10 @@ export function LoginPage() {
           </form>
 
           {/* Divider */}
-          <div className="flex items-center gap-3 my-6">
+          <div
+            className="flex items-center gap-4"
+            style={{ marginTop: '3rem', marginBottom: '3rem' }}
+          >
             <div className="flex-1 h-px bg-cosmic-cyan/10" />
             <span className="text-xs text-star-white/30 font-display tracking-wider">OR</span>
             <div className="flex-1 h-px bg-cosmic-cyan/10" />
@@ -108,15 +117,16 @@ export function LoginPage() {
 
           {/* 42 OAuth */}
           <button
+            type="button"
             onClick={() => api.oauth42Login()}
-            className="cosmic-btn w-full py-3 flex items-center justify-center gap-3"
+            className="cosmic-btn w-full py-3.5 md:py-4 flex items-center justify-center gap-3"
           >
             <span className="font-bold text-lg">42</span>
             <span>でログイン</span>
           </button>
 
           {/* Sign up link */}
-          <p className="text-center text-sm text-star-white/40 mt-6">
+          <p className="text-center text-sm text-star-white/40 mt-8 md:mt-10">
             アカウントをお持ちでない方は{' '}
             <Link to="/signup" className="text-cosmic-cyan hover:text-cosmic-cyan/80 transition-colors">
               新規登録
@@ -125,7 +135,7 @@ export function LoginPage() {
         </div>
 
         {/* Footer links */}
-        <div className="flex items-center justify-center gap-4 mt-6 text-xs text-star-white/30">
+        <div className="flex items-center justify-center gap-6 mt-8 md:mt-10 text-xs text-star-white/30">
           <Link to="/terms" className="hover:text-cosmic-cyan transition-colors">利用規約</Link>
           <span>|</span>
           <Link to="/privacy" className="hover:text-cosmic-cyan transition-colors">プライバシーポリシー</Link>

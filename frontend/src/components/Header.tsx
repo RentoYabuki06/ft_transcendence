@@ -28,20 +28,22 @@ export function Header() {
       <div
         className="flex items-center justify-between px-6 py-3"
         style={{
-          background: 'linear-gradient(180deg, rgba(5,10,24,0.95) 0%, rgba(5,10,24,0.8) 100%)',
-          borderBottom: '1px solid rgba(0,212,255,0.1)',
-          backdropFilter: 'blur(12px)',
+          background: 'linear-gradient(180deg, rgba(18,5,31,0.96) 0%, rgba(18,5,31,0.82) 100%)',
+          borderBottom: '1px solid rgba(255,79,216,0.18)',
+          backdropFilter: 'blur(14px)',
+          boxShadow: '0 2px 24px rgba(184,77,255,0.12)',
         }}
       >
         {/* Logo */}
         <Link to="/dashboard" className="flex items-center gap-2 group">
           <div
             className="font-display text-2xl font-bold tracking-wider"
-            style={{
-              background: 'linear-gradient(135deg, #00d4ff, #8b5cf6)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-            }}
+          style={{
+            background: 'linear-gradient(135deg, #6ee7ff 0%, #ff4fd8 45%, #b84dff 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            filter: 'drop-shadow(0 0 8px rgba(255,79,216,0.5))',
+          }}
           >
             Pong
           </div>
@@ -87,8 +89,8 @@ export function Header() {
         <div
           className="md:hidden absolute top-full left-0 right-0 animate-slide-in"
           style={{
-            background: 'rgba(5,10,24,0.95)',
-            borderBottom: '1px solid rgba(0,212,255,0.1)',
+            background: 'rgba(18,5,31,0.97)',
+            borderBottom: '1px solid rgba(255,79,216,0.15)',
             backdropFilter: 'blur(16px)',
           }}
         >
