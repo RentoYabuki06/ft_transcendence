@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { usePresence } from '../hooks/usePresence';
 import { UserAvatar } from '../components/UserAvatar';
 import { api } from '../services/api';
 import type { Achievement, Friend } from '../types';
@@ -35,6 +36,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 export function DashboardPage() {
   const { user } = useAuth();
+  const { isOnline } = usePresence();
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [friends, setFriends] = useState<Friend[]>([]);
 
@@ -313,27 +315,17 @@ export function DashboardPage() {
                   el.style.borderColor = 'rgba(255,255,255,0.05)';
                 }}
               >
-                <UserAvatar avatarUrl={f.user.avatarUrl} nickname={f.user.nickname} size="sm" onlineStatus={f.onlineStatus} />
+                <UserAvatar
+                  avatarUrl={f.user.avatarUrl}
+                  nickname={f.user.nickname}
+                  size="sm"
+                  onlineStatus={isOnline(f.user.id) ? 'online' : 'offline'}
+                />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#faf5ff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {f.user.nickname}
                   </div>
                 </div>
-                <span
-                  style={{
-                    fontSize: '0.65rem',
-                    padding: '0.2rem 0.7rem',
-                    borderRadius: '999px',
-                    flexShrink: 0,
-                    ...(f.onlineStatus === 'online'
-                      ? { background: 'rgba(52,211,153,0.15)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)' }
-                      : f.onlineStatus === 'in-game'
-                      ? { background: 'rgba(252,211,77,0.15)', color: '#fcd34d', border: '1px solid rgba(252,211,77,0.3)' }
-                      : { background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.3)', border: '1px solid rgba(255,255,255,0.08)' }),
-                  }}
-                >
-                  {f.onlineStatus === 'online' ? 'オンライン' : f.onlineStatus === 'in-game' ? 'ゲーム中' : 'オフライン'}
-                </span>
               </Link>
             ))}
             {friends.length === 0 && (

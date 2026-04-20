@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
+import { usePresence } from '../hooks/usePresence';
 import { UserAvatar } from '../components/UserAvatar';
 import type { Friend } from '../types';
 
@@ -11,6 +12,7 @@ interface SearchResult {
 }
 
 export function FriendsPage() {
+  const { isOnline } = usePresence();
   const [friends, setFriends] = useState<Friend[]>([]);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -143,7 +145,12 @@ export function FriendsPage() {
                 }}
               >
                 <Link to={`/user/${f.user.id}`} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, textDecoration: 'none' }}>
-                  <UserAvatar avatarUrl={f.user.avatarUrl} nickname={f.user.nickname} size="sm" onlineStatus={f.onlineStatus} />
+                  <UserAvatar
+                    avatarUrl={f.user.avatarUrl}
+                    nickname={f.user.nickname}
+                    size="sm"
+                    onlineStatus={isOnline(f.user.id) ? 'online' : 'offline'}
+                  />
                   <div style={{ color: '#faf5ff', fontSize: '0.9rem' }}>{f.user.nickname}</div>
                 </Link>
                 <Link to={`/chat/${f.user.id}`} className="cosmic-btn" style={{ fontSize: '0.7rem', padding: '0.35rem 0.8rem' }}>

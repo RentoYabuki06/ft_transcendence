@@ -92,6 +92,17 @@ export function GamePage() {
           gameRef.current.ball.vx = -msg.vx;
           gameRef.current.ball.vy = msg.vy;
         }
+      } else if (msg.type === 'score_update') {
+        // ゲストはホストから転送されたスコアを表示（左右反転）
+        if (!isHostRef.current) {
+          const my = msg.opponentScore ?? 0;
+          const opp = msg.myScore ?? 0;
+          if (gameRef.current) {
+            gameRef.current.myScore = my;
+            gameRef.current.opponentScore = opp;
+          }
+          setScores({ my, opp });
+        }
       } else if (msg.type === 'game_finished') {
         if (gameRef.current) gameRef.current.running = false;
         setWinner(msg.winnerId === user.id ? 'me' : 'opponent');

@@ -52,6 +52,11 @@ export default defineConfig(({ mode }) => {
           ws: true,
           rewrite: (path) => path.replace(/^\/api/, ''),
         },
+        // backend が配信する静的ファイル（アップロード画像など）
+        '/uploads': {
+          target: apiTarget,
+          changeOrigin: true,
+        },
       },
     },
   }

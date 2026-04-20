@@ -190,6 +190,16 @@ export async function websocketRoutes(fastify: FastifyInstance) {
               }
             }
           }
+        } else if (msg.type === 'score_update') {
+          // ホストがスコアを通知 → ゲストに転送
+          const room = gameRooms.get(gameId)
+          if (room) {
+            for (const [pid, ws] of room.entries()) {
+              if (pid !== userId && ws.readyState === ws.OPEN) {
+                ws.send(JSON.stringify({ type: 'score_update', myScore: msg.myScore, opponentScore: msg.opponentScore, from: userId }))
+              }
+            }
+          }
         } else if (msg.type === 'ball_update') {
           // ボール位置をゲストに転送（ホストのみ送信）
           const room = gameRooms.get(gameId)
