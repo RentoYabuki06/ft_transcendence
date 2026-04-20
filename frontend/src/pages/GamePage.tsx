@@ -21,7 +21,7 @@ interface GameState {
   running: boolean;
 }
 
-type ConnectionStatus = 'connecting' | 'waiting' | 'playing' | 'finished' | 'error';
+type ConnectionStatus = 'connecting' | 'waiting' | 'countdown' | 'playing' | 'finished' | 'error';
 
 export function GamePage() {
   const { id: gameId } = useParams<{ id: string }>();
@@ -37,6 +37,8 @@ export function GamePage() {
   const [connStatus, setConnStatus] = useState<ConnectionStatus>('connecting');
   const [scores, setScores] = useState({ my: 0, opp: 0 });
   const [winner, setWinner] = useState<'me' | 'opponent' | null>(null);
+  const [countdown, setCountdown] = useState<number>(0);
+  const [disconnectReason, setDisconnectReason] = useState<'opponent_left' | 'network' | null>(null);
 
   const initGame = useCallback((): GameState => ({
     ball: {
@@ -78,8 +80,8 @@ export function GamePage() {
       } else if (msg.type === 'game_start') {
         // 最初に接続したプレイヤーがホスト（ボール物理担当）
         isHostRef.current = msg.players[0] === user.id;
-        if (gameRef.current) gameRef.current.running = true;
-        setConnStatus('playing');
+        setConnStatus('countdown');
+        setCountdown(3);
       } else if (msg.type === 'opponent_paddle') {
         if (gameRef.current) gameRef.current.opponentPaddle.y = msg.paddleY;
       } else if (msg.type === 'ball_update' && !isHostRef.current) {
@@ -96,18 +98,40 @@ export function GamePage() {
         setConnStatus('finished');
       } else if (msg.type === 'opponent_disconnected') {
         if (gameRef.current) gameRef.current.running = false;
+        setDisconnectReason('opponent_left');
         setConnStatus('error');
       }
     };
 
-    ws.onerror = () => setConnStatus('error');
+    ws.onerror = () => {
+      setDisconnectReason('network');
+      setConnStatus('error');
+    };
     ws.onclose = () => {
-      if (connStatus === 'playing') setConnStatus('error');
+      setConnStatus((prev) => {
+        if (prev === 'playing' || prev === 'countdown') {
+          setDisconnectReason((r) => r ?? 'network');
+          return 'error';
+        }
+        return prev;
+      });
     };
 
     return () => ws.close();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId, user?.id]);
+
+  // カウントダウン
+  useEffect(() => {
+    if (connStatus !== 'countdown') return;
+    if (countdown <= 0) {
+      if (gameRef.current) gameRef.current.running = true;
+      setConnStatus('playing');
+      return;
+    }
+    const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [connStatus, countdown]);
 
   useEffect(() => {
     if (connStatus !== 'playing') return;
@@ -297,13 +321,24 @@ export function GamePage() {
       {/* Error overlay */}
       {connStatus === 'error' && (
         <div className="text-center">
-          <div className="font-display text-xl text-cosmic-red mb-4">接続が切断されました</div>
-          <button onClick={() => navigate('/dashboard')} className="cosmic-btn">ダッシュボードへ</button>
+          <div className="font-display text-xl text-cosmic-red mb-4">
+            {disconnectReason === 'opponent_left'
+              ? '相手が退出しました'
+              : '接続が切断されました'}
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+            <button onClick={() => navigate('/matching')} className="cosmic-btn cosmic-btn-primary">
+              もう一度対戦
+            </button>
+            <button onClick={() => navigate('/dashboard')} className="cosmic-btn">
+              ダッシュボードへ
+            </button>
+          </div>
         </div>
       )}
 
       {/* Game */}
-      {(connStatus === 'playing' || connStatus === 'finished') && (
+      {(connStatus === 'countdown' || connStatus === 'playing' || connStatus === 'finished') && (
         <>
           <div className="flex items-center gap-12 mb-6">
             <div className="text-center">
@@ -329,6 +364,25 @@ export function GamePage() {
               }}
             />
 
+            {connStatus === 'countdown' && (
+              <div className="absolute inset-0 flex items-center justify-center rounded-xl" style={{ background: 'rgba(5,10,24,0.7)', backdropFilter: 'blur(2px)' }}>
+                <div
+                  className="font-display font-black"
+                  style={{
+                    fontSize: '8rem',
+                    background: 'linear-gradient(135deg, #00d4ff, #ff4fd8, #b84dff)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    textShadow: '0 0 40px rgba(255,79,216,0.5)',
+                    animation: 'glow-pulse 1s ease-in-out',
+                  }}
+                  key={countdown}
+                >
+                  {countdown > 0 ? countdown : 'GO!'}
+                </div>
+              </div>
+            )}
+
             {connStatus === 'finished' && (
               <div className="absolute inset-0 flex flex-col items-center justify-center rounded-xl" style={{ background: 'rgba(5,10,24,0.85)', backdropFilter: 'blur(4px)' }}>
                 <h2
@@ -349,9 +403,14 @@ export function GamePage() {
                 <div className="font-display text-3xl text-star-white mb-8">
                   {scores.my} - {scores.opp}
                 </div>
-                <button onClick={() => navigate('/dashboard')} className="cosmic-btn">
-                  ダッシュボードへ
-                </button>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button onClick={() => navigate('/matching')} className="cosmic-btn cosmic-btn-primary">
+                    もう一度対戦
+                  </button>
+                  <button onClick={() => navigate('/dashboard')} className="cosmic-btn">
+                    ダッシュボードへ
+                  </button>
+                </div>
               </div>
             )}
           </div>

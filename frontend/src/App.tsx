@@ -13,6 +13,11 @@ import { MatchHistoryPage } from './pages/MatchHistoryPage';
 import { RankingPage } from './pages/RankingPage';
 import { TermsPage } from './pages/TermsPage';
 import { PrivacyPage } from './pages/PrivacyPage';
+import { FriendsPage } from './pages/FriendsPage';
+import { PlayPage } from './pages/PlayPage';
+import { ChatPage } from './pages/ChatPage';
+import { TournamentListPage } from './pages/TournamentListPage';
+import { TournamentDetailPage } from './pages/TournamentDetailPage';
 import type { ReactNode } from 'react';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
@@ -71,6 +76,14 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/play"
+        element={
+          <ProtectedRoute>
+            <Layout><PlayPage /></Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/matching"
         element={
           <ProtectedRoute>
@@ -99,6 +112,47 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Layout><RankingPage /></Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/friends"
+        element={
+          <ProtectedRoute>
+            <Layout><FriendsPage /></Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/chat"
+        element={
+          <ProtectedRoute>
+            <Layout><ChatPage /></Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/chat/:userId"
+        element={
+          <ProtectedRoute>
+            <Layout><ChatPage /></Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tournaments"
+        element={
+          <ProtectedRoute>
+            <Layout><TournamentListPage /></Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tournaments/:id"
+        element={
+          <ProtectedRoute>
+            <Layout><TournamentDetailPage /></Layout>
           </ProtectedRoute>
         }
       />

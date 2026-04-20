@@ -53,6 +53,36 @@ export async function userRoutes(fastify: FastifyInstance) {
     return reply.send(user)
   })
 
+  // PUT /users/me/password — 現在のパスワードを検証して変更
+  fastify.put('/users/me/password', { preHandler: authenticate }, async (request, reply) => {
+    const userId = (request as any).userId as number
+    const { currentPassword, newPassword } = request.body as {
+      currentPassword?: string
+      newPassword?: string
+    }
+    if (!currentPassword || !newPassword) {
+      return reply.code(400).send({ message: '現在のパスワードと新しいパスワードを入力してください' })
+    }
+    if (newPassword.length < 8 || newPassword.length > 128) {
+      return reply.code(400).send({ message: '新しいパスワードは8文字以上128文字以下にしてください' })
+    }
+
+    const account = await prisma.accounts.findFirst({ where: { userId, provider: 'local' } })
+    if (!account) {
+      return reply.code(400).send({ message: 'ローカルパスワードが設定されていません' })
+    }
+
+    const valid = await bcrypt.compare(currentPassword, account.passwordHash ?? '')
+    if (!valid) {
+      return reply.code(401).send({ message: '現在のパスワードが正しくありません' })
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12)
+    await prisma.accounts.update({ where: { id: account.id }, data: { passwordHash: hashedPassword } })
+
+    return reply.send({ message: 'パスワードを変更しました' })
+  })
+
   // POST /users/me/avatar
   fastify.post('/users/me/avatar', { preHandler: authenticate }, async (request, reply) => {
     const userId = (request as any).userId as number
@@ -80,6 +110,27 @@ export async function userRoutes(fastify: FastifyInstance) {
 
     await prisma.users.update({ where: { id: userId }, data: { pictureURL: avatarUrl } })
     return reply.send({ avatarUrl })
+  })
+
+  // GET /users?search=xxx — ニックネーム検索（フレンド追加用）
+  fastify.get('/users', { preHandler: authenticate }, async (request, reply) => {
+    const userId = (request as any).userId as number
+    const { search } = request.query as { search?: string }
+    if (!search || search.trim().length < 1) {
+      return reply.send([])
+    }
+    const q = search.trim().slice(0, 50)
+    const users = await prisma.users.findMany({
+      where: {
+        nickname: { contains: q },
+        NOT: { id: userId },
+      },
+      take: 20,
+      select: { id: true, nickname: true, pictureURL: true },
+    })
+    return reply.send(
+      users.map((u) => ({ id: u.id, nickname: u.nickname, avatarUrl: u.pictureURL }))
+    )
   })
 
   // GET /users/:id

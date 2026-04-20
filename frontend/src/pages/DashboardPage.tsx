@@ -55,7 +55,7 @@ export function DashboardPage() {
   const winRate = totalGames > 0 ? Math.round((user.wins / totalGames) * 100) : 0;
 
   const quickActions = [
-    { to: '/matching', icon: '🏓', label: 'PLAY PONG',     sub: '対戦相手を探す',  color: '#34d399' },
+    { to: '/play',     icon: '🏓', label: 'PLAY PONG',     sub: 'モードを選択',    color: '#34d399' },
     { to: '/history',  icon: '📋', label: 'MATCH HISTORY', sub: '対戦履歴',        color: '#6ee7ff' },
     { to: '/ranking',  icon: '🏆', label: 'RANKING',       sub: 'ランキングを見る', color: '#fcd34d' },
   ];
@@ -255,7 +255,36 @@ export function DashboardPage() {
           className="cosmic-card"
           style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column' }}
         >
-          <SectionHeading>FRIENDS</SectionHeading>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+            <SectionHeading>FRIENDS</SectionHeading>
+            <Link
+              to="/friends"
+              style={{
+                fontSize: '0.7rem',
+                color: 'rgba(110,231,255,0.7)',
+                textDecoration: 'none',
+                padding: '0.2rem 0.6rem',
+                borderRadius: '999px',
+                border: '1px solid rgba(110,231,255,0.25)',
+                transition: 'all 0.18s ease',
+                letterSpacing: '0.05em',
+              }}
+              onMouseEnter={(e) => {
+                const el = e.currentTarget as HTMLElement;
+                el.style.background = 'rgba(255,79,216,0.12)';
+                el.style.borderColor = 'rgba(255,79,216,0.4)';
+                el.style.color = '#ff4fd8';
+              }}
+              onMouseLeave={(e) => {
+                const el = e.currentTarget as HTMLElement;
+                el.style.background = 'transparent';
+                el.style.borderColor = 'rgba(110,231,255,0.25)';
+                el.style.color = 'rgba(110,231,255,0.7)';
+              }}
+            >
+              All →
+            </Link>
+          </div>
           <div style={{ maxHeight: '260px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
             {friends.map((f) => (
               <Link

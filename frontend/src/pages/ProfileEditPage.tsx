@@ -11,8 +11,14 @@ export function ProfileEditPage() {
   const [email, setEmail] = useState(user?.email || '');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // 2FA
+  const [twoFaQrUrl, setTwoFaQrUrl] = useState<string | null>(null);
+  const [twoFaCode, setTwoFaCode] = useState('');
+  const [twoFaBusy, setTwoFaBusy] = useState(false);
 
   if (!user) return null;
 
@@ -35,15 +41,72 @@ export function ProfileEditPage() {
     setIsLoading(true);
 
     try {
-      const updated = await api.updateMe({ nickname, email });
-      updateUser(updated);
+      // プロフィール情報更新（ニックネーム・メール）
+      if (nickname !== user.nickname || email !== user.email) {
+        const updated = await api.updateMe({ nickname, email });
+        updateUser(updated);
+      }
+
+      // パスワード変更
+      if (currentPassword || newPassword) {
+        if (!currentPassword || !newPassword) {
+          throw new Error('現在のパスワードと新しいパスワードを両方入力してください');
+        }
+        await api.changePassword(currentPassword, newPassword);
+        setCurrentPassword('');
+        setNewPassword('');
+      }
+
       setMessage({ type: 'success', text: 'プロフィールを更新しました' });
-      setCurrentPassword('');
-      setNewPassword('');
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : '更新に失敗しました' });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handle2FASetup = async () => {
+    setTwoFaBusy(true);
+    setMessage(null);
+    try {
+      const res = await api.setup2FA();
+      setTwoFaQrUrl(res.qrCodeUrl);
+    } catch (e) {
+      setMessage({ type: 'error', text: e instanceof Error ? e.message : '2FA設定の開始に失敗しました' });
+    } finally {
+      setTwoFaBusy(false);
+    }
+  };
+
+  const handle2FAVerify = async () => {
+    if (!twoFaCode) return;
+    setTwoFaBusy(true);
+    setMessage(null);
+    try {
+      await api.verify2FA(twoFaCode);
+      updateUser({ ...user, isTwoFactorEnabled: true });
+      setTwoFaQrUrl(null);
+      setTwoFaCode('');
+      setMessage({ type: 'success', text: '2FAを有効化しました' });
+    } catch (e) {
+      setMessage({ type: 'error', text: e instanceof Error ? e.message : 'コードの検証に失敗しました' });
+    } finally {
+      setTwoFaBusy(false);
+    }
+  };
+
+  const handle2FADisable = async () => {
+    if (!confirm('2FAを無効にしますか？')) return;
+    setTwoFaBusy(true);
+    setMessage(null);
+    try {
+      await api.disable2FA();
+      updateUser({ ...user, isTwoFactorEnabled: false });
+      setMessage({ type: 'success', text: '2FAを無効化しました' });
+    } catch (e) {
+      setMessage({ type: 'error', text: e instanceof Error ? e.message : '無効化に失敗しました' });
+    } finally {
+      setTwoFaBusy(false);
     }
   };
 
@@ -118,25 +181,36 @@ export function ProfileEditPage() {
           <div>
             <label className="block text-sm text-star-white/50 mb-1.5 font-medium">現在のパスワード</label>
             <input
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
               className="cosmic-input"
               placeholder="変更する場合のみ入力"
+              autoComplete="current-password"
             />
           </div>
 
           <div>
             <label className="block text-sm text-star-white/50 mb-1.5 font-medium">新しいパスワード</label>
             <input
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               className="cosmic-input"
               placeholder="8文字以上"
               minLength={8}
+              autoComplete="new-password"
             />
           </div>
+
+          <label className="flex items-center gap-2 text-xs text-star-white/40 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showPassword}
+              onChange={(e) => setShowPassword(e.target.checked)}
+            />
+            パスワードを表示
+          </label>
 
           {/* 42 OAuth Status */}
           <div className="flex items-center gap-3 p-3 rounded-lg bg-white/3 border border-white/5">
@@ -157,6 +231,74 @@ export function ProfileEditPage() {
             {isLoading ? <span className="animate-glow-pulse">保存中...</span> : '保存'}
           </button>
         </form>
+      </div>
+
+      {/* 2FA セクション */}
+      <div className="cosmic-card" style={{ marginTop: '1.25rem', padding: '1.5rem' }}>
+        <h2 className="font-display text-sm tracking-wider text-cosmic-cyan/70 uppercase mb-3">
+          2段階認証 (2FA)
+        </h2>
+
+        {user.isTwoFactorEnabled ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <p className="text-sm text-cosmic-green">
+              ✓ 2FAは有効です
+            </p>
+            <button
+              onClick={handle2FADisable}
+              disabled={twoFaBusy}
+              className="cosmic-btn"
+              style={{ alignSelf: 'flex-start', borderColor: 'rgba(251,113,133,0.3)', color: '#fb7185' }}
+            >
+              2FAを無効にする
+            </button>
+          </div>
+        ) : twoFaQrUrl ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center' }}>
+            <p className="text-sm text-star-white/60 text-center">
+              Google Authenticator などの認証アプリで<br />以下のQRコードをスキャンしてください
+            </p>
+            <img src={twoFaQrUrl} alt="2FA QR code" style={{ width: 200, height: 200, borderRadius: 12, background: '#fff', padding: 8 }} />
+            <input
+              type="text"
+              inputMode="numeric"
+              value={twoFaCode}
+              onChange={(e) => setTwoFaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="6桁のコード"
+              className="cosmic-input"
+              style={{ maxWidth: 200, textAlign: 'center', letterSpacing: '0.3em', fontSize: '1.2rem' }}
+            />
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                onClick={handle2FAVerify}
+                disabled={twoFaBusy || twoFaCode.length !== 6}
+                className="cosmic-btn cosmic-btn-primary"
+              >
+                有効化する
+              </button>
+              <button
+                onClick={() => { setTwoFaQrUrl(null); setTwoFaCode(''); }}
+                className="cosmic-btn"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <p className="text-sm text-star-white/60">
+              認証アプリを使ってログイン時のセキュリティを強化できます。
+            </p>
+            <button
+              onClick={handle2FASetup}
+              disabled={twoFaBusy}
+              className="cosmic-btn cosmic-btn-primary"
+              style={{ alignSelf: 'flex-start' }}
+            >
+              {twoFaBusy ? '準備中...' : '2FAを設定する'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

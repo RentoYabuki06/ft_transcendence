@@ -15,6 +15,7 @@ import { matchmakingRoutes } from './src/routes/matchmaking.js'
 import { achievementRoutes } from './src/routes/achievements.js'
 import { twofaRoutes } from './src/routes/twofa.js'
 import { tournamentRoutes } from './src/routes/tournaments.js'
+import { messageRoutes } from './src/routes/messages.js'
 import { websocketRoutes } from './src/routes/websocket.js'
 import { legalRoutes } from './src/routes/legal.js'
 
@@ -35,13 +36,14 @@ await server.register(cors, {
 })
 
 // Fastify 標準エラーハンドラ: 本番では stack を返さない
-server.setErrorHandler((error, _request, reply) => {
+server.setErrorHandler((error: any, _request, reply) => {
   server.log.error(error)
-  const statusCode = error.statusCode ?? 500
+  const statusCode = (error?.statusCode as number | undefined) ?? 500
+  const message = typeof error?.message === 'string' ? error.message : 'An error occurred'
   reply.code(statusCode).send({
     message: statusCode >= 500 && process.env.NODE_ENV === 'production'
       ? 'Internal Server Error'
-      : error.message,
+      : message,
   })
 })
 
@@ -75,6 +77,7 @@ await server.register(matchmakingRoutes)
 await server.register(achievementRoutes)
 await server.register(twofaRoutes)
 await server.register(tournamentRoutes)
+await server.register(messageRoutes)
 await server.register(legalRoutes)
 
 // --- WebSocket Routes ---

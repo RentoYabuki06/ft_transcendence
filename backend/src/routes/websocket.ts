@@ -10,6 +10,8 @@ const presenceMap = new Map<number, WebSocket>()
 const matchmakingMap = new Map<number, WebSocket>()
 // gameRooms: gameId -> Map<userId, WebSocket> (ゲームルーム)
 const gameRooms = new Map<number, Map<number, WebSocket>>()
+// chatMap: userId -> WebSocket (チャットリアルタイム配信)
+const chatMap = new Map<number, WebSocket>()
 
 // --- ヘルパー ---
 function broadcast(map: Map<number, WebSocket>, data: unknown) {
@@ -47,7 +49,31 @@ export function notifyMatchFound(
   sendToUser(matchmakingMap, userId2, { type: 'matched', gameId, opponent: opponent1 })
 }
 
+// --- エクスポート: チャット着信 ---
+export function deliverChatMessage(
+  receiverId: number,
+  payload: { id: number; senderId: number; receiverId: number; body: string; createdAt: string },
+) {
+  sendToUser(chatMap, receiverId, { type: 'chat_message', ...payload })
+}
+
 export async function websocketRoutes(fastify: FastifyInstance) {
+  // ----------------------------------------------------------------
+  // WS /ws/chat — チャット配信
+  // ----------------------------------------------------------------
+  fastify.get('/ws/chat', { websocket: true }, (socket, request) => {
+    const token = (request.query as Record<string, string>).token
+    const userId = token ? authenticateWs(token) : null
+    if (!userId) {
+      socket.send(JSON.stringify({ type: 'error', message: '認証が必要です' }))
+      socket.close()
+      return
+    }
+    chatMap.set(userId, socket)
+    socket.on('close', () => chatMap.delete(userId))
+    socket.on('error', () => chatMap.delete(userId))
+  })
+
   // ----------------------------------------------------------------
   // WS /ws/presence — オンライン状態 broadcast
   // ----------------------------------------------------------------

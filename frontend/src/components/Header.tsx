@@ -15,10 +15,13 @@ export function Header() {
   };
 
   const navItems = [
-    { path: '/dashboard', label: 'ダッシュボード' },
-    { path: '/ranking', label: 'ランキング' },
-    { path: '/matching', label: 'リモート対戦' },
-    { path: '/profile/edit', label: 'プロフィール編集' },
+    { path: '/dashboard', label: 'DASHBOARD' },
+    { path: '/play', label: 'PLAY' },
+    { path: '/ranking', label: 'RANKING' },
+    { path: '/tournaments', label: 'TOURNAMENTS' },
+    { path: '/friends', label: 'FRIENDS' },
+    { path: '/chat', label: 'CHAT' },
+    { path: '/profile/edit', label: 'PROFILE' },
   ];
 
   const isActive = (path: string) => location.pathname === path;
@@ -69,7 +72,7 @@ export function Header() {
             onClick={handleLogout}
             className="px-4 py-2 rounded-lg text-sm font-medium text-cosmic-red/70 hover:text-cosmic-red hover:bg-cosmic-red/10 transition-all duration-300 ml-2"
           >
-            ログアウト
+            LOGOUT
           </button>
         </nav>
 
@@ -113,7 +116,7 @@ export function Header() {
               onClick={handleLogout}
               className="px-4 py-3 rounded-lg text-sm font-medium text-cosmic-red/70 hover:text-cosmic-red hover:bg-cosmic-red/10 transition-all text-left"
             >
-              ログアウト
+              LOGOUT
             </button>
           </nav>
         </div>

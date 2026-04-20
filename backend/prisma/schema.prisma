@@ -172,6 +172,19 @@ model Friendships {
   @@unique([userId, friendId])
 }
 
+/// 1対1チャットメッセージテーブル
+model Messages {
+  id         Int      @id @default(autoincrement())
+  senderId   Int      /// 送信者ユーザーID
+  receiverId Int      /// 受信者ユーザーID
+  body       String   /// メッセージ本文
+  readAt     DateTime? /// 受信者が既読にした時刻
+  createdAt  DateTime @default(now())
+
+  @@index([senderId, receiverId, createdAt])
+  @@index([receiverId, senderId, createdAt])
+}
+
 /// 実績マスターテーブル
 model Achievements {
   id          Int    @id @default(autoincrement())

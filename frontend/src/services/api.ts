@@ -3,8 +3,11 @@ const API_BASE = '/api';
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
   const token = sessionStorage.getItem('auth_token');
 
+  const hasBody = options.body !== undefined && options.body !== null;
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
+    ...(hasBody && !(options.body instanceof FormData)
+      ? { 'Content-Type': 'application/json' }
+      : {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...options.headers,
   };
@@ -52,6 +55,25 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<{ message: string }>('/users/me/password', {
+      method: 'PUT',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+
+  // 2FA
+  setup2FA: () =>
+    request<{ secret: string; qrCodeUrl: string }>('/users/me/2fa/setup', { method: 'POST' }),
+
+  verify2FA: (code: string) =>
+    request<{ message: string }>('/users/me/2fa/verify', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+
+  disable2FA: () =>
+    request<{ message: string }>('/users/me/2fa', { method: 'DELETE' }),
 
   uploadAvatar: (file: File) => {
     const formData = new FormData();
@@ -101,4 +123,83 @@ export const api = {
 
   cancelMatchmaking: () =>
     request<void>('/matchmaking/cancel', { method: 'POST' }),
+
+  // User search (for adding friends)
+  searchUsers: (q: string) =>
+    request<Array<{ id: number; nickname: string; avatarUrl: string | null }>>(
+      `/users?search=${encodeURIComponent(q)}`
+    ),
+
+  // Chat
+  getConversations: () =>
+    request<Array<{
+      partnerId: number;
+      nickname: string;
+      avatarUrl: string | null;
+      lastMessage: { body: string; createdAt: string; fromMe: boolean };
+      unreadCount: number;
+    }>>('/messages/conversations'),
+
+  getMessages: (userId: number) =>
+    request<Array<{
+      id: number;
+      senderId: number;
+      receiverId: number;
+      body: string;
+      createdAt: string;
+      readAt: string | null;
+    }>>(`/messages/${userId}`),
+
+  sendMessage: (receiverId: number, body: string) =>
+    request<{ id: number; senderId: number; receiverId: number; body: string; createdAt: string }>(
+      '/messages',
+      { method: 'POST', body: JSON.stringify({ receiverId, body }) }
+    ),
+
+  // Tournaments
+  getTournaments: () =>
+    request<Array<{
+      id: number;
+      name: string;
+      createdBy: number;
+      maxParticipants: number;
+      participantCount: number;
+      status: { id: number; name: string } | null;
+      createdAt: string;
+    }>>('/tournaments'),
+
+  createTournament: (name: string, maxParticipants: 4 | 8) =>
+    request<{ id: number; name: string; maxParticipants: number; createdAt: string }>(
+      '/tournaments',
+      { method: 'POST', body: JSON.stringify({ name, maxParticipants }) }
+    ),
+
+  getTournament: (id: number) =>
+    request<{
+      id: number;
+      name: string;
+      createdBy: number;
+      maxParticipants: number;
+      status: { id: number; name: string } | null;
+      participants: Array<{ id: number; userId: number; alias: string; nickname?: string; avatarUrl?: string | null }>;
+      bracket: Array<{
+        id: number;
+        round: number;
+        order: number;
+        status?: string;
+        winnerId: number | null;
+        players: Array<{ userId: number; nickname?: string; score: number | null; isWinner: boolean | null }>;
+      }>;
+      createdAt: string;
+      updatedAt: string;
+    }>(`/tournaments/${id}`),
+
+  joinTournament: (id: number, alias?: string) =>
+    request<{ message: string }>(`/tournaments/${id}/join`, {
+      method: 'POST',
+      body: JSON.stringify({ alias }),
+    }),
+
+  startTournament: (id: number) =>
+    request<{ message: string; tournamentId: number }>(`/tournaments/${id}/start`, { method: 'POST' }),
 };

@@ -11,7 +11,9 @@ export function MatchingPage() {
   const [opponent, setOpponent] = useState<{ id: number; nickname: string; avatarUrl: string | null } | null>(null);
   const [gameId, setGameId] = useState<number | null>(null);
   const [dots, setDots] = useState('');
+  const [elapsed, setElapsed] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
+  const cancelledRef = useRef(false);
 
   useEffect(() => {
     const token = sessionStorage.getItem('auth_token');
@@ -19,28 +21,44 @@ export function MatchingPage() {
 
     api.joinMatchmaking().catch(console.error);
 
-    const wsUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/ws/matchmaking?token=${token}`;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    let retryTimer: number | null = null;
 
-    ws.onmessage = (e) => {
-      const msg = JSON.parse(e.data);
-      if (msg.type === 'matched') {
-        setOpponent(msg.opponent);
-        setGameId(msg.gameId);
-        setStatus('matched');
-      }
+    const connect = () => {
+      if (cancelledRef.current) return;
+      const wsUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/ws/matchmaking?token=${token}`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'matched') {
+          setOpponent(msg.opponent);
+          setGameId(msg.gameId);
+          setStatus('matched');
+        }
+      };
+
+      ws.onerror = () => console.error('Matchmaking WebSocket error');
+      ws.onclose = () => {
+        if (cancelledRef.current) return;
+        // 3秒後に再接続
+        retryTimer = window.setTimeout(connect, 3000);
+      };
     };
 
-    ws.onerror = () => console.error('Matchmaking WebSocket error');
+    connect();
 
     const dotInterval = setInterval(() => {
       setDots((prev) => (prev.length >= 3 ? '' : prev + '.'));
     }, 500);
+    const elapsedInterval = setInterval(() => setElapsed((s) => s + 1), 1000);
 
     return () => {
+      cancelledRef.current = true;
       clearInterval(dotInterval);
-      ws.close();
+      clearInterval(elapsedInterval);
+      if (retryTimer) clearTimeout(retryTimer);
+      wsRef.current?.close();
     };
   }, []);
 
@@ -78,7 +96,10 @@ export function MatchingPage() {
           <h2 className="font-display text-xl text-cosmic-cyan text-glow-cyan mb-2">
             対戦相手を探しています{dots}
           </h2>
-          <p className="text-sm text-star-white/30 mb-8">マッチメイキング中</p>
+          <p className="text-sm text-star-white/30 mb-2">マッチメイキング中</p>
+          <p className="text-xs text-cosmic-cyan/40 font-display mb-8">
+            経過時間: {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}
+          </p>
 
           <button
             onClick={handleCancel}
