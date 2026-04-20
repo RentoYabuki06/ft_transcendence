@@ -1,10 +1,12 @@
 import { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { UserAvatar } from '../components/UserAvatar';
 import { api } from '../services/api';
 
 export function ProfileEditPage() {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, logout } = useAuth();
+  const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [nickname, setNickname] = useState(user?.nickname || '');
@@ -299,6 +301,52 @@ export function ProfileEditPage() {
             </button>
           </div>
         )}
+      </div>
+
+      {/* GDPR セクション */}
+      <div className="cosmic-card" style={{ marginTop: '1.25rem', padding: '1.5rem' }}>
+        <h2 className="font-display text-sm tracking-wider text-cosmic-cyan/70 uppercase mb-3">
+          データ管理 (GDPR)
+        </h2>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <p className="text-sm text-star-white/60">
+            あなたのアカウントに関する全データをエクスポート、または削除できます。
+          </p>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await api.exportMyData();
+                  setMessage({ type: 'success', text: 'データをダウンロードしました' });
+                } catch (e) {
+                  setMessage({ type: 'error', text: e instanceof Error ? e.message : 'エクスポートに失敗しました' });
+                }
+              }}
+              className="cosmic-btn"
+            >
+              データをエクスポート (JSON)
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!confirm('本当にアカウントを削除しますか？\nこの操作は取り消せません。')) return;
+                if (!confirm('最終確認: すべてのメッセージ・フレンド・実績が削除されます。続行しますか？')) return;
+                try {
+                  await api.deleteMyAccount();
+                  logout();
+                  navigate('/');
+                } catch (e) {
+                  setMessage({ type: 'error', text: e instanceof Error ? e.message : '削除に失敗しました' });
+                }
+              }}
+              className="cosmic-btn"
+              style={{ borderColor: 'rgba(251,113,133,0.3)', color: '#fb7185' }}
+            >
+              アカウントを削除
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

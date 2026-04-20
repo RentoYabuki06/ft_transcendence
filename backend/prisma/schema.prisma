@@ -172,6 +172,16 @@ model Friendships {
   @@unique([userId, friendId])
 }
 
+/// ブロック関係を管理するテーブル（userId が blockedId をブロック）
+model Blocks {
+  id         Int      @id @default(autoincrement())
+  userId     Int      /// ブロックしたユーザーID
+  blockedId  Int      /// ブロックされたユーザーID
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, blockedId])
+}
+
 /// 1対1チャットメッセージテーブル
 model Messages {
   id         Int      @id @default(autoincrement())

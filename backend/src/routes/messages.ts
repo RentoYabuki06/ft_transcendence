@@ -99,6 +99,17 @@ export async function messageRoutes(fastify: FastifyInstance) {
     const receiver = await prisma.users.findUnique({ where: { id: receiverId } })
     if (!receiver) return reply.code(404).send({ message: '受信者が見つかりません' })
 
+    // ブロック関係チェック（どちらか一方でもブロックしていれば送信不可）
+    const blocked = await prisma.blocks.findFirst({
+      where: {
+        OR: [
+          { userId, blockedId: receiverId },
+          { userId: receiverId, blockedId: userId },
+        ],
+      },
+    })
+    if (blocked) return reply.code(403).send({ message: 'このユーザーとはメッセージできません' })
+
     const msg = await prisma.messages.create({
       data: { senderId: userId, receiverId, body: body.trim() },
     })

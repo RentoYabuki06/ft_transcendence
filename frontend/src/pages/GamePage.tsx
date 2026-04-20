@@ -208,18 +208,32 @@ export function GamePage() {
       if (state.ball.x < 0) {
         state.opponentScore++;
         setScores({ my: state.myScore, opp: state.opponentScore });
+        ws.send(JSON.stringify({ type: 'score_update', myScore: state.myScore, opponentScore: state.opponentScore }));
         if (state.opponentScore >= WINNING_SCORE) {
           state.running = false;
-          ws.send(JSON.stringify({ type: 'game_over', winnerId: null })); // determined server-side
+          ws.send(JSON.stringify({
+            type: 'game_over',
+            winnerId: null,
+            scores: { [user!.id]: state.myScore, opponent: state.opponentScore },
+            myScore: state.myScore,
+            opponentScore: state.opponentScore,
+          }));
         } else {
           resetBall(state);
         }
       } else if (state.ball.x > CANVAS_WIDTH) {
         state.myScore++;
         setScores({ my: state.myScore, opp: state.opponentScore });
+        ws.send(JSON.stringify({ type: 'score_update', myScore: state.myScore, opponentScore: state.opponentScore }));
         if (state.myScore >= WINNING_SCORE) {
           state.running = false;
-          ws.send(JSON.stringify({ type: 'game_over', winnerId: user?.id }));
+          ws.send(JSON.stringify({
+            type: 'game_over',
+            winnerId: user?.id,
+            scores: { [user!.id]: state.myScore, opponent: state.opponentScore },
+            myScore: state.myScore,
+            opponentScore: state.opponentScore,
+          }));
         } else {
           resetBall(state);
         }

@@ -18,6 +18,7 @@ import { tournamentRoutes } from './src/routes/tournaments.js'
 import { messageRoutes } from './src/routes/messages.js'
 import { websocketRoutes } from './src/routes/websocket.js'
 import { legalRoutes } from './src/routes/legal.js'
+import { blockRoutes } from './src/routes/blocks.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -79,6 +80,7 @@ await server.register(twofaRoutes)
 await server.register(tournamentRoutes)
 await server.register(messageRoutes)
 await server.register(legalRoutes)
+await server.register(blockRoutes)
 
 // --- WebSocket Routes ---
 await server.register(websocketRoutes)

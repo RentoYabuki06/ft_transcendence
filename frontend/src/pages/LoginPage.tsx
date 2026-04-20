@@ -8,7 +8,9 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const [tempToken, setTempToken] = useState<string | null>(null);
+  const [twoFaCode, setTwoFaCode] = useState('');
+  const { login, complete2FALogin } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -17,10 +19,29 @@ export function LoginPage() {
     setIsLoading(true);
 
     try {
-      await login(email, password);
-      navigate('/dashboard');
+      const result = await login(email, password);
+      if (result?.requires2fa) {
+        setTempToken(result.tempToken);
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'ログインに失敗しました');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handle2FASubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tempToken || twoFaCode.length !== 6) return;
+    setError('');
+    setIsLoading(true);
+    try {
+      await complete2FALogin(tempToken, twoFaCode);
+      navigate('/dashboard');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'コード検証に失敗しました');
     } finally {
       setIsLoading(false);
     }
@@ -63,6 +84,41 @@ export function LoginPage() {
             </div>
           )}
 
+          {tempToken ? (
+            <form
+              onSubmit={handle2FASubmit}
+              style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}
+            >
+              <p className="text-sm text-star-white/60 text-center">
+                認証アプリの6桁コードを入力してください
+              </p>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={twoFaCode}
+                onChange={(e) => setTwoFaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="cosmic-input"
+                placeholder="000000"
+                autoFocus
+                style={{ textAlign: 'center', letterSpacing: '0.4em', fontSize: '1.3rem' }}
+              />
+              <button
+                type="submit"
+                disabled={isLoading || twoFaCode.length !== 6}
+                className="cosmic-btn cosmic-btn-primary w-full disabled:opacity-50"
+                style={{ padding: '0.875rem 1.5rem' }}
+              >
+                {isLoading ? '検証中...' : '検証'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setTempToken(null); setTwoFaCode(''); setError(''); }}
+                className="text-xs text-star-white/40 hover:text-star-white underline"
+              >
+                ← メール/パスワードに戻る
+              </button>
+            </form>
+          ) : (
           <form
             onSubmit={handleSubmit}
             style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}
@@ -104,6 +160,7 @@ export function LoginPage() {
               )}
             </button>
           </form>
+          )}
 
           {/* Divider */}
           <div

@@ -175,7 +175,9 @@ export async function websocketRoutes(fastify: FastifyInstance) {
           type: string
           paddleY?: number
           score?: { [userId: number]: number }
-          winnerId?: number
+          winnerId?: number | null
+          myScore?: number
+          opponentScore?: number
         }
 
         if (msg.type === 'paddle_move') {
@@ -198,9 +200,21 @@ export async function websocketRoutes(fastify: FastifyInstance) {
               }
             }
           }
-        } else if (msg.type === 'game_over' && msg.winnerId) {
-          // ゲーム終了処理
-          await handleGameOver(gameId, msg.winnerId, room)
+        } else if (msg.type === 'game_over') {
+          // winnerId が null の場合は送信者が負け = 相手が勝者
+          const winnerId =
+            msg.winnerId ??
+            [...room.keys()].find((id) => id !== userId) ??
+            userId
+          // ホストから見たスコアを両者に割り当てる
+          const senderScore = msg.myScore ?? 0
+          const opponentScore = msg.opponentScore ?? 0
+          const scores = new Map<number, number>()
+          scores.set(userId, senderScore)
+          for (const pid of room.keys()) {
+            if (pid !== userId) scores.set(pid, opponentScore)
+          }
+          await handleGameOver(gameId, winnerId, room, scores)
         }
       } catch {
         // JSON parse error は無視
@@ -233,23 +247,31 @@ async function handleGameOver(
   gameId: number,
   winnerId: number,
   room: Map<number, WebSocket>,
+  scoresByUser?: Map<number, number>,
 ) {
   const finishedStatus = await prisma.statuses.findFirst({
     where: { category: 'game', name: 'finished' },
   })
   if (!finishedStatus) return
 
+  // 二重処理防止: 既に finished なら何もしない
+  const game = await prisma.games.findUnique({ where: { id: gameId } })
+  if (!game || game.statusId === finishedStatus.id) return
+
   await prisma.games.update({
     where: { id: gameId },
     data: { statusId: finishedStatus.id, winnerId },
   })
 
-  // PlayerScores の isWinner を更新
+  // PlayerScores の isWinner とスコアを更新
   const scores = await prisma.playerScores.findMany({ where: { gameId } })
   for (const s of scores) {
     await prisma.playerScores.update({
       where: { id: s.id },
-      data: { isWinner: s.userId === winnerId },
+      data: {
+        isWinner: s.userId === winnerId,
+        ...(scoresByUser?.has(s.userId) ? { score: scoresByUser.get(s.userId)! } : {}),
+      },
     })
   }
 

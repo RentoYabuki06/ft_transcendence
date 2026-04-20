@@ -28,9 +28,18 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
 export const api = {
   // Auth
   login: (email: string, password: string) =>
-    request<{ token: string; user: import('../types').User }>('/auth/login', {
+    request<
+      | { token: string; user: import('../types').User }
+      | { requires2fa: true; tempToken: string }
+    >('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
+    }),
+
+  login2faChallenge: (tempToken: string, code: string) =>
+    request<{ token: string; user: import('../types').User }>('/auth/2fa/challenge', {
+      method: 'POST',
+      body: JSON.stringify({ tempToken, code }),
     }),
 
   signup: (data: { nickname: string; email: string; password: string }) =>
@@ -74,6 +83,39 @@ export const api = {
 
   disable2FA: () =>
     request<{ message: string }>('/users/me/2fa', { method: 'DELETE' }),
+
+  // GDPR
+  exportMyData: async () => {
+    const token = sessionStorage.getItem('auth_token');
+    const res = await fetch(`${API_BASE}/users/me/export`, {
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'my-data.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
+  deleteMyAccount: () =>
+    request<{ message: string }>('/users/me', { method: 'DELETE' }),
+
+  // Blocks
+  getBlocks: () =>
+    request<Array<{ id: number; nickname: string; avatarUrl: string | null; blockedAt: string }>>(
+      '/users/me/blocks'
+    ),
+
+  blockUser: (userId: number) =>
+    request<{ message: string }>(`/users/me/blocks/${userId}`, { method: 'POST' }),
+
+  unblockUser: (userId: number) =>
+    request<{ message: string }>(`/users/me/blocks/${userId}`, { method: 'DELETE' }),
 
   uploadAvatar: (file: File) => {
     const formData = new FormData();

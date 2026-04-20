@@ -143,4 +143,75 @@ export async function userRoutes(fastify: FastifyInstance) {
     if (!user) return reply.code(404).send({ message: 'ユーザーが見つかりません' })
     return reply.send(user)
   })
+
+  // GET /users/me/export — GDPR: 全データをJSONでエクスポート
+  fastify.get('/users/me/export', { preHandler: authenticate }, async (request, reply) => {
+    const userId = (request as any).userId as number
+    const user = await prisma.users.findUnique({ where: { id: userId } })
+    if (!user) return reply.code(404).send({ message: 'ユーザーが見つかりません' })
+
+    const accounts = await prisma.accounts.findMany({ where: { userId } })
+    const friendships = await prisma.friendships.findMany({ where: { userId } })
+    const messagesSent = await prisma.messages.findMany({ where: { senderId: userId } })
+    const messagesReceived = await prisma.messages.findMany({ where: { receiverId: userId } })
+    const playerScores = await prisma.playerScores.findMany({ where: { userId } })
+    const tournamentParticipants = await prisma.tournamentParticipants.findMany({ where: { userId } })
+    const userAchievements = await prisma.userAchievements.findMany({ where: { userId } })
+
+    const data = {
+      exportedAt: new Date().toISOString(),
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        nickname: user.nickname,
+        pictureURL: user.pictureURL,
+        isTwoFactorEnabled: user.isTwoFactorEnabled,
+        createdAt: user.createdAt,
+      },
+      accounts: accounts.map((a) => ({
+        provider: a.provider,
+        providerAccountId: a.providerAccountId,
+        createdAt: a.createdAt,
+      })),
+      friendships,
+      messagesSent,
+      messagesReceived,
+      playerScores,
+      tournamentParticipants,
+      userAchievements,
+    }
+
+    reply.header('Content-Disposition', `attachment; filename="user-${userId}-export.json"`)
+    return reply.send(data)
+  })
+
+  // DELETE /users/me — GDPR: アカウントと関連データを削除
+  fastify.delete('/users/me', { preHandler: authenticate }, async (request, reply) => {
+    const userId = (request as any).userId as number
+
+    const anonNickname = `deleted_user_${userId}`
+    await prisma.$transaction([
+      prisma.userAchievements.deleteMany({ where: { userId } }),
+      prisma.friendships.deleteMany({ where: { OR: [{ userId }, { friendId: userId }] } }),
+      prisma.messages.deleteMany({ where: { OR: [{ senderId: userId }, { receiverId: userId }] } }),
+      prisma.waitingRoomParticipants.deleteMany({ where: { userId } }),
+      prisma.tournamentParticipants.deleteMany({ where: { userId } }),
+      prisma.accounts.deleteMany({ where: { userId } }),
+      // 試合履歴は残すが個人識別情報を匿名化
+      prisma.users.update({
+        where: { id: userId },
+        data: {
+          email: `deleted+${userId}@example.invalid`,
+          name: anonNickname,
+          nickname: anonNickname,
+          pictureURL: null,
+          twoFactorSecret: null,
+          isTwoFactorEnabled: false,
+        },
+      }),
+    ])
+
+    return reply.send({ message: 'アカウントを削除しました' })
+  })
 }

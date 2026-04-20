@@ -42,6 +42,16 @@ export async function friendRoutes(fastify: FastifyInstance) {
     })
     if (existing) return reply.code(409).send({ message: '既にフレンドです' })
 
+    const blocked = await prisma.blocks.findFirst({
+      where: {
+        OR: [
+          { userId, blockedId: targetId },
+          { userId: targetId, blockedId: userId },
+        ],
+      },
+    })
+    if (blocked) return reply.code(403).send({ message: 'このユーザーとはフレンドになれません' })
+
     await prisma.friendships.create({ data: { userId, friendId: targetId } })
     // 双方向フレンドシップ（既存なら無視）
     const reverse = await prisma.friendships.findUnique({
