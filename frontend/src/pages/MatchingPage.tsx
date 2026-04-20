@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { UserAvatar } from '../components/UserAvatar';
@@ -8,41 +8,53 @@ export function MatchingPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [status, setStatus] = useState<'searching' | 'matched' | 'cancelled'>('searching');
-  const [opponent, setOpponent] = useState<{ nickname: string; avatarUrl: string | null; rank: number } | null>(null);
+  const [opponent, setOpponent] = useState<{ id: number; nickname: string; avatarUrl: string | null } | null>(null);
+  const [gameId, setGameId] = useState<number | null>(null);
   const [dots, setDots] = useState('');
+  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    // Start matchmaking
+    const token = sessionStorage.getItem('auth_token');
+    if (!token) return;
+
     api.joinMatchmaking().catch(console.error);
 
-    // Animate dots
+    const wsUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/ws/matchmaking?token=${token}`;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'matched') {
+        setOpponent(msg.opponent);
+        setGameId(msg.gameId);
+        setStatus('matched');
+      }
+    };
+
+    ws.onerror = () => console.error('Matchmaking WebSocket error');
+
     const dotInterval = setInterval(() => {
       setDots((prev) => (prev.length >= 3 ? '' : prev + '.'));
     }, 500);
 
-    // Simulate finding opponent after 3-5 seconds
-    const matchTimer = setTimeout(() => {
-      setOpponent({ nickname: 'NebulaStar', avatarUrl: null, rank: 1 });
-      setStatus('matched');
-    }, 3000 + Math.random() * 2000);
-
     return () => {
       clearInterval(dotInterval);
-      clearTimeout(matchTimer);
+      ws.close();
     };
   }, []);
 
-  // After matched, navigate to game after 2s
   useEffect(() => {
-    if (status === 'matched') {
+    if (status === 'matched' && gameId !== null) {
       const timer = setTimeout(() => {
-        navigate('/game/1');
+        navigate(`/game/${gameId}`);
       }, 2500);
       return () => clearTimeout(timer);
     }
-  }, [status, navigate]);
+  }, [status, gameId, navigate]);
 
   const handleCancel = () => {
+    wsRef.current?.close();
     api.cancelMatchmaking().catch(console.error);
     setStatus('cancelled');
     navigate('/dashboard');
@@ -54,7 +66,6 @@ export function MatchingPage() {
     <div className="flex items-center justify-center min-h-[70vh]">
       {status === 'searching' && (
         <div className="text-center animate-slide-in">
-          {/* Pulse ring animation */}
           <div className="relative w-48 h-48 mx-auto mb-8">
             <div className="absolute inset-0 rounded-full border-2 border-cosmic-cyan/20 animate-ping" style={{ animationDuration: '2s' }} />
             <div className="absolute inset-4 rounded-full border border-cosmic-cyan/30 animate-ping" style={{ animationDuration: '2.5s' }} />
@@ -81,14 +92,12 @@ export function MatchingPage() {
       {status === 'matched' && opponent && (
         <div className="text-center animate-slide-in">
           <div className="flex items-center justify-center gap-8 md:gap-16 mb-8">
-            {/* Player 1 */}
             <div className="text-center">
               <UserAvatar avatarUrl={user.avatarUrl} nickname={user.nickname} size="lg" showRing />
               <p className="font-display text-lg text-star-white mt-3">{user.nickname}</p>
               <p className="text-xs text-cosmic-cyan/50 font-display">Rank #{user.rank}</p>
             </div>
 
-            {/* VS */}
             <div
               className="font-display text-4xl font-black"
               style={{
@@ -102,11 +111,9 @@ export function MatchingPage() {
               VS
             </div>
 
-            {/* Player 2 */}
             <div className="text-center">
               <UserAvatar avatarUrl={opponent.avatarUrl} nickname={opponent.nickname} size="lg" showRing />
               <p className="font-display text-lg text-star-white mt-3">{opponent.nickname}</p>
-              <p className="text-xs text-cosmic-cyan/50 font-display">Rank #{opponent.rank}</p>
             </div>
           </div>
 

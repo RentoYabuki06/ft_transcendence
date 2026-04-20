@@ -11,8 +11,10 @@ export function DashboardPage() {
   const [friends, setFriends] = useState<Friend[]>([]);
 
   useEffect(() => {
-    // Fetch achievements
-    fetch('/api/users/me/achievements')
+    const token = sessionStorage.getItem('auth_token');
+    fetch('/api/users/me/achievements', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
       .then((r) => r.json())
       .then(setAchievements)
       .catch(console.error);

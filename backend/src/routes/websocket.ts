@@ -162,6 +162,16 @@ export async function websocketRoutes(fastify: FastifyInstance) {
               }
             }
           }
+        } else if (msg.type === 'ball_update') {
+          // ボール位置をゲストに転送（ホストのみ送信）
+          const room = gameRooms.get(gameId)
+          if (room) {
+            for (const [pid, ws] of room.entries()) {
+              if (pid !== userId && ws.readyState === ws.OPEN) {
+                ws.send(JSON.stringify({ ...msg, from: userId }))
+              }
+            }
+          }
         } else if (msg.type === 'game_over' && msg.winnerId) {
           // ゲーム終了処理
           await handleGameOver(gameId, msg.winnerId, room)

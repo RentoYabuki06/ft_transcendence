@@ -5,8 +5,7 @@ import App from './App'
 import './style.css'
 
 async function enableMocking() {
-  // Only enable MSW in development
-  if (import.meta.env.MODE !== 'development') {
+  if (import.meta.env.VITE_USE_MOCK !== 'true') {
     return
   }
   const { worker } = await import('./mocks/browser')

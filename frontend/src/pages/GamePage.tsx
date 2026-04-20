@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
 
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 500;
@@ -9,24 +10,33 @@ const BALL_SIZE = 10;
 const PADDLE_SPEED = 6;
 const BALL_SPEED_INIT = 4;
 const WINNING_SCORE = 11;
+const BALL_SEND_INTERVAL = 50; // ms
 
 interface GameState {
   ball: { x: number; y: number; vx: number; vy: number };
-  paddle1: { y: number };
-  paddle2: { y: number };
-  score1: number;
-  score2: number;
+  myPaddle: { y: number };
+  opponentPaddle: { y: number };
+  myScore: number;
+  opponentScore: number;
   running: boolean;
 }
 
+type ConnectionStatus = 'connecting' | 'waiting' | 'playing' | 'finished' | 'error';
+
 export function GamePage() {
+  const { id: gameId } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<GameState | null>(null);
   const keysRef = useRef<Set<string>>(new Set());
-  const navigate = useNavigate();
-  const [scores, setScores] = useState({ p1: 0, p2: 0 });
-  const [gameOver, setGameOver] = useState(false);
-  const [winner, setWinner] = useState('');
+  const wsRef = useRef<WebSocket | null>(null);
+  const isHostRef = useRef(false);
+  const lastBallSendRef = useRef(0);
+
+  const [connStatus, setConnStatus] = useState<ConnectionStatus>('connecting');
+  const [scores, setScores] = useState({ my: 0, opp: 0 });
+  const [winner, setWinner] = useState<'me' | 'opponent' | null>(null);
 
   const initGame = useCallback((): GameState => ({
     ball: {
@@ -35,11 +45,11 @@ export function GamePage() {
       vx: BALL_SPEED_INIT * (Math.random() > 0.5 ? 1 : -1),
       vy: (Math.random() - 0.5) * BALL_SPEED_INIT,
     },
-    paddle1: { y: CANVAS_HEIGHT / 2 - PADDLE_HEIGHT / 2 },
-    paddle2: { y: CANVAS_HEIGHT / 2 - PADDLE_HEIGHT / 2 },
-    score1: 0,
-    score2: 0,
-    running: true,
+    myPaddle: { y: CANVAS_HEIGHT / 2 - PADDLE_HEIGHT / 2 },
+    opponentPaddle: { y: CANVAS_HEIGHT / 2 - PADDLE_HEIGHT / 2 },
+    myScore: 0,
+    opponentScore: 0,
+    running: false,
   }), []);
 
   const resetBall = (state: GameState) => {
@@ -50,12 +60,63 @@ export function GamePage() {
   };
 
   useEffect(() => {
+    const token = sessionStorage.getItem('auth_token');
+    if (!token || !gameId || !user) return;
+
+    const wsUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/ws/game/${gameId}?token=${token}`;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+    gameRef.current = initGame();
+
+    ws.onopen = () => setConnStatus('waiting');
+
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+
+      if (msg.type === 'connected') {
+        setConnStatus('waiting');
+      } else if (msg.type === 'game_start') {
+        // 最初に接続したプレイヤーがホスト（ボール物理担当）
+        isHostRef.current = msg.players[0] === user.id;
+        if (gameRef.current) gameRef.current.running = true;
+        setConnStatus('playing');
+      } else if (msg.type === 'opponent_paddle') {
+        if (gameRef.current) gameRef.current.opponentPaddle.y = msg.paddleY;
+      } else if (msg.type === 'ball_update' && !isHostRef.current) {
+        // ゲストはホストのボール位置を受け取る
+        if (gameRef.current) {
+          gameRef.current.ball.x = CANVAS_WIDTH - msg.x; // ミラーリング
+          gameRef.current.ball.y = msg.y;
+          gameRef.current.ball.vx = -msg.vx;
+          gameRef.current.ball.vy = msg.vy;
+        }
+      } else if (msg.type === 'game_finished') {
+        if (gameRef.current) gameRef.current.running = false;
+        setWinner(msg.winnerId === user.id ? 'me' : 'opponent');
+        setConnStatus('finished');
+      } else if (msg.type === 'opponent_disconnected') {
+        if (gameRef.current) gameRef.current.running = false;
+        setConnStatus('error');
+      }
+    };
+
+    ws.onerror = () => setConnStatus('error');
+    ws.onclose = () => {
+      if (connStatus === 'playing') setConnStatus('error');
+    };
+
+    return () => ws.close();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameId, user?.id]);
+
+  useEffect(() => {
+    if (connStatus !== 'playing') return;
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    gameRef.current = initGame();
     let animId: number;
 
     const handleKeyDown = (e: KeyboardEvent) => keysRef.current.add(e.key);
@@ -63,76 +124,94 @@ export function GamePage() {
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
 
+    let lastPaddleY = -1;
+
     function update() {
       const state = gameRef.current;
-      if (!state || !state.running) return;
+      const ws = wsRef.current;
+      if (!state || !state.running || !ws) return;
 
       const keys = keysRef.current;
 
-      // Player 1 controls (W/S)
-      if (keys.has('w') || keys.has('W')) state.paddle1.y = Math.max(0, state.paddle1.y - PADDLE_SPEED);
-      if (keys.has('s') || keys.has('S')) state.paddle1.y = Math.min(CANVAS_HEIGHT - PADDLE_HEIGHT, state.paddle1.y + PADDLE_SPEED);
+      // My paddle movement
+      if (keys.has('w') || keys.has('W') || keys.has('ArrowUp')) {
+        state.myPaddle.y = Math.max(0, state.myPaddle.y - PADDLE_SPEED);
+      }
+      if (keys.has('s') || keys.has('S') || keys.has('ArrowDown')) {
+        state.myPaddle.y = Math.min(CANVAS_HEIGHT - PADDLE_HEIGHT, state.myPaddle.y + PADDLE_SPEED);
+      }
 
-      // Player 2 controls (Arrow keys)
-      if (keys.has('ArrowUp')) state.paddle2.y = Math.max(0, state.paddle2.y - PADDLE_SPEED);
-      if (keys.has('ArrowDown')) state.paddle2.y = Math.min(CANVAS_HEIGHT - PADDLE_HEIGHT, state.paddle2.y + PADDLE_SPEED);
+      // Send paddle position if changed
+      if (state.myPaddle.y !== lastPaddleY && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'paddle_move', paddleY: state.myPaddle.y }));
+        lastPaddleY = state.myPaddle.y;
+      }
 
-      // Ball movement
+      if (!isHostRef.current) return; // ゲストはボール物理を動かさない
+
+      // Ball movement (host only)
       state.ball.x += state.ball.vx;
       state.ball.y += state.ball.vy;
 
-      // Top/bottom collision
+      // Top/bottom bounce
       if (state.ball.y <= 0 || state.ball.y >= CANVAS_HEIGHT - BALL_SIZE) {
         state.ball.vy *= -1;
       }
 
-      // Paddle 1 collision (left)
+      // My paddle (left) collision
       if (
         state.ball.x <= PADDLE_WIDTH + 20 &&
-        state.ball.y + BALL_SIZE >= state.paddle1.y &&
-        state.ball.y <= state.paddle1.y + PADDLE_HEIGHT &&
+        state.ball.y + BALL_SIZE >= state.myPaddle.y &&
+        state.ball.y <= state.myPaddle.y + PADDLE_HEIGHT &&
         state.ball.vx < 0
       ) {
         state.ball.vx = Math.abs(state.ball.vx) * 1.05;
-        const hitPos = (state.ball.y - state.paddle1.y) / PADDLE_HEIGHT - 0.5;
-        state.ball.vy = hitPos * BALL_SPEED_INIT * 2;
+        state.ball.vy = ((state.ball.y - state.myPaddle.y) / PADDLE_HEIGHT - 0.5) * BALL_SPEED_INIT * 2;
       }
 
-      // Paddle 2 collision (right)
+      // Opponent paddle (right) collision
       if (
         state.ball.x >= CANVAS_WIDTH - PADDLE_WIDTH - 20 - BALL_SIZE &&
-        state.ball.y + BALL_SIZE >= state.paddle2.y &&
-        state.ball.y <= state.paddle2.y + PADDLE_HEIGHT &&
+        state.ball.y + BALL_SIZE >= state.opponentPaddle.y &&
+        state.ball.y <= state.opponentPaddle.y + PADDLE_HEIGHT &&
         state.ball.vx > 0
       ) {
         state.ball.vx = -Math.abs(state.ball.vx) * 1.05;
-        const hitPos = (state.ball.y - state.paddle2.y) / PADDLE_HEIGHT - 0.5;
-        state.ball.vy = hitPos * BALL_SPEED_INIT * 2;
+        state.ball.vy = ((state.ball.y - state.opponentPaddle.y) / PADDLE_HEIGHT - 0.5) * BALL_SPEED_INIT * 2;
       }
 
       // Scoring
       if (state.ball.x < 0) {
-        state.score2++;
-        setScores({ p1: state.score1, p2: state.score2 });
-        if (state.score2 >= WINNING_SCORE) {
+        state.opponentScore++;
+        setScores({ my: state.myScore, opp: state.opponentScore });
+        if (state.opponentScore >= WINNING_SCORE) {
           state.running = false;
-          setGameOver(true);
-          setWinner('Player 2');
+          ws.send(JSON.stringify({ type: 'game_over', winnerId: null })); // determined server-side
+        } else {
+          resetBall(state);
+        }
+      } else if (state.ball.x > CANVAS_WIDTH) {
+        state.myScore++;
+        setScores({ my: state.myScore, opp: state.opponentScore });
+        if (state.myScore >= WINNING_SCORE) {
+          state.running = false;
+          ws.send(JSON.stringify({ type: 'game_over', winnerId: user?.id }));
         } else {
           resetBall(state);
         }
       }
 
-      if (state.ball.x > CANVAS_WIDTH) {
-        state.score1++;
-        setScores({ p1: state.score1, p2: state.score2 });
-        if (state.score1 >= WINNING_SCORE) {
-          state.running = false;
-          setGameOver(true);
-          setWinner('Player 1');
-        } else {
-          resetBall(state);
-        }
+      // Send ball state to guest
+      const now = Date.now();
+      if (now - lastBallSendRef.current >= BALL_SEND_INTERVAL && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'ball_update',
+          x: state.ball.x,
+          y: state.ball.y,
+          vx: state.ball.vx,
+          vy: state.ball.vy,
+        }));
+        lastBallSendRef.current = now;
       }
     }
 
@@ -140,11 +219,10 @@ export function GamePage() {
       const state = gameRef.current;
       if (!state) return;
 
-      // Background
       ctx!.fillStyle = '#050a18';
       ctx!.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-      // Center line
+      // Center dashed line
       ctx!.setLineDash([8, 8]);
       ctx!.strokeStyle = 'rgba(0, 212, 255, 0.15)';
       ctx!.lineWidth = 2;
@@ -154,17 +232,17 @@ export function GamePage() {
       ctx!.stroke();
       ctx!.setLineDash([]);
 
-      // Paddle 1 (cyan)
+      // My paddle (left = cyan)
       ctx!.shadowColor = '#00d4ff';
       ctx!.shadowBlur = 15;
       ctx!.fillStyle = '#00d4ff';
-      ctx!.fillRect(20, state.paddle1.y, PADDLE_WIDTH, PADDLE_HEIGHT);
+      ctx!.fillRect(20, state.myPaddle.y, PADDLE_WIDTH, PADDLE_HEIGHT);
 
-      // Paddle 2 (purple)
+      // Opponent paddle (right = purple)
       ctx!.shadowColor = '#8b5cf6';
       ctx!.shadowBlur = 15;
       ctx!.fillStyle = '#8b5cf6';
-      ctx!.fillRect(CANVAS_WIDTH - 20 - PADDLE_WIDTH, state.paddle2.y, PADDLE_WIDTH, PADDLE_HEIGHT);
+      ctx!.fillRect(CANVAS_WIDTH - 20 - PADDLE_WIDTH, state.opponentPaddle.y, PADDLE_WIDTH, PADDLE_HEIGHT);
 
       // Ball
       ctx!.shadowColor = '#ffffff';
@@ -174,7 +252,6 @@ export function GamePage() {
       ctx!.arc(state.ball.x, state.ball.y, BALL_SIZE, 0, Math.PI * 2);
       ctx!.fill();
 
-      // Ball trail glow
       ctx!.shadowBlur = 0;
       const gradient = ctx!.createRadialGradient(
         state.ball.x, state.ball.y, 0,
@@ -203,92 +280,92 @@ export function GamePage() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [initGame]);
+  }, [connStatus, user?.id]);
 
   return (
-    <div
-      className="min-h-screen flex flex-col items-center justify-center relative"
-      style={{ background: 'var(--color-space-deep)' }}
-    >
-      {/* Score */}
-      <div className="flex items-center gap-12 mb-6">
+    <div className="min-h-screen flex flex-col items-center justify-center relative" style={{ background: 'var(--color-space-deep)' }}>
+      {/* Waiting overlay */}
+      {connStatus === 'connecting' || connStatus === 'waiting' ? (
         <div className="text-center">
-          <div className="font-display text-xs text-cosmic-cyan/50 tracking-widest mb-1">PLAYER 1</div>
-          <div className="font-display text-5xl font-black text-cosmic-cyan text-glow-cyan">{scores.p1}</div>
+          <div className="font-display text-xl text-cosmic-cyan text-glow-cyan animate-pulse mb-4">
+            {connStatus === 'connecting' ? '接続中...' : '対戦相手を待っています...'}
+          </div>
+          <p className="text-sm text-star-white/30">Game #{gameId}</p>
         </div>
-        <div className="font-display text-2xl text-star-white/20">-</div>
+      ) : null}
+
+      {/* Error overlay */}
+      {connStatus === 'error' && (
         <div className="text-center">
-          <div className="font-display text-xs text-cosmic-purple/50 tracking-widest mb-1">PLAYER 2</div>
-          <div className="font-display text-5xl font-black text-cosmic-purple text-glow-purple">{scores.p2}</div>
+          <div className="font-display text-xl text-cosmic-red mb-4">接続が切断されました</div>
+          <button onClick={() => navigate('/dashboard')} className="cosmic-btn">ダッシュボードへ</button>
         </div>
-      </div>
+      )}
 
-      {/* Game Canvas */}
-      <div className="relative">
-        <canvas
-          ref={canvasRef}
-          width={CANVAS_WIDTH}
-          height={CANVAS_HEIGHT}
-          className="rounded-xl"
-          style={{
-            border: '1px solid rgba(0, 212, 255, 0.15)',
-            boxShadow: '0 0 40px rgba(0, 212, 255, 0.05), inset 0 0 40px rgba(0, 0, 0, 0.5)',
-          }}
-        />
-
-        {/* Game Over Overlay */}
-        {gameOver && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center rounded-xl" style={{ background: 'rgba(5,10,24,0.85)', backdropFilter: 'blur(4px)' }}>
-            <h2
-              className="font-display text-4xl font-black mb-2"
-              style={{
-                background: 'linear-gradient(135deg, #00d4ff, #8b5cf6)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-              }}
-            >
-              GAME OVER
-            </h2>
-            <p className="font-display text-lg text-cosmic-cyan mb-6">{winner} Wins!</p>
-            <div className="font-display text-3xl text-star-white mb-8">
-              {scores.p1} - {scores.p2}
+      {/* Game */}
+      {(connStatus === 'playing' || connStatus === 'finished') && (
+        <>
+          <div className="flex items-center gap-12 mb-6">
+            <div className="text-center">
+              <div className="font-display text-xs text-cosmic-cyan/50 tracking-widest mb-1">YOU</div>
+              <div className="font-display text-5xl font-black text-cosmic-cyan text-glow-cyan">{scores.my}</div>
             </div>
-            <div className="flex gap-4">
-              <button
-                onClick={() => {
-                  gameRef.current = initGame();
-                  setScores({ p1: 0, p2: 0 });
-                  setGameOver(false);
-                  setWinner('');
-                }}
-                className="cosmic-btn cosmic-btn-primary"
-              >
-                もう一度
-              </button>
-              <button
-                onClick={() => navigate('/dashboard')}
-                className="cosmic-btn"
-              >
-                ダッシュボードへ
-              </button>
+            <div className="font-display text-2xl text-star-white/20">-</div>
+            <div className="text-center">
+              <div className="font-display text-xs text-cosmic-purple/50 tracking-widest mb-1">OPPONENT</div>
+              <div className="font-display text-5xl font-black text-cosmic-purple">{scores.opp}</div>
             </div>
           </div>
-        )}
-      </div>
 
-      {/* Controls Help */}
-      <div className="flex items-center gap-12 mt-6 text-xs text-star-white/20">
-        <div className="flex items-center gap-2">
-          <span className="text-cosmic-cyan/40">Player 1:</span>
-          <kbd className="px-1.5 py-0.5 rounded border border-cosmic-cyan/20 bg-cosmic-cyan/5 text-cosmic-cyan/40 font-mono">W</kbd>
-          <kbd className="px-1.5 py-0.5 rounded border border-cosmic-cyan/20 bg-cosmic-cyan/5 text-cosmic-cyan/40 font-mono">S</kbd>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-cosmic-purple/40">Player 2:</span>
-          <kbd className="px-1.5 py-0.5 rounded border border-cosmic-purple/20 bg-cosmic-purple/5 text-cosmic-purple/40 font-mono">↑</kbd>
-          <kbd className="px-1.5 py-0.5 rounded border border-cosmic-purple/20 bg-cosmic-purple/5 text-cosmic-purple/40 font-mono">↓</kbd>
-        </div>
-      </div>
+          <div className="relative">
+            <canvas
+              ref={canvasRef}
+              width={CANVAS_WIDTH}
+              height={CANVAS_HEIGHT}
+              className="rounded-xl"
+              style={{
+                border: '1px solid rgba(0, 212, 255, 0.15)',
+                boxShadow: '0 0 40px rgba(0, 212, 255, 0.05), inset 0 0 40px rgba(0, 0, 0, 0.5)',
+              }}
+            />
+
+            {connStatus === 'finished' && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center rounded-xl" style={{ background: 'rgba(5,10,24,0.85)', backdropFilter: 'blur(4px)' }}>
+                <h2
+                  className="font-display text-4xl font-black mb-2"
+                  style={{
+                    background: 'linear-gradient(135deg, #00d4ff, #8b5cf6)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                  }}
+                >
+                  GAME OVER
+                </h2>
+                <p className="font-display text-lg mb-2">
+                  {winner === 'me'
+                    ? <span className="text-cosmic-green">あなたの勝ち!</span>
+                    : <span className="text-cosmic-red">相手の勝ち</span>}
+                </p>
+                <div className="font-display text-3xl text-star-white mb-8">
+                  {scores.my} - {scores.opp}
+                </div>
+                <button onClick={() => navigate('/dashboard')} className="cosmic-btn">
+                  ダッシュボードへ
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-4 mt-6 text-xs text-star-white/20">
+            <span className="text-cosmic-cyan/40">操作:</span>
+            <kbd className="px-1.5 py-0.5 rounded border border-cosmic-cyan/20 bg-cosmic-cyan/5 text-cosmic-cyan/40 font-mono">W</kbd>
+            <kbd className="px-1.5 py-0.5 rounded border border-cosmic-cyan/20 bg-cosmic-cyan/5 text-cosmic-cyan/40 font-mono">S</kbd>
+            <span className="text-star-white/10">or</span>
+            <kbd className="px-1.5 py-0.5 rounded border border-cosmic-cyan/20 bg-cosmic-cyan/5 text-cosmic-cyan/40 font-mono">↑</kbd>
+            <kbd className="px-1.5 py-0.5 rounded border border-cosmic-cyan/20 bg-cosmic-cyan/5 text-cosmic-cyan/40 font-mono">↓</kbd>
+          </div>
+        </>
+      )}
     </div>
   );
 }
