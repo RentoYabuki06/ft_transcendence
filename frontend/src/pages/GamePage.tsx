@@ -359,7 +359,8 @@ export function GamePage() {
       canvasEl?.removeEventListener('click', handleCanvasTap);
       canvasEl?.removeEventListener('touchstart', handleCanvasTap);
     };
-  }, []);
+    // canvas 側 listener を貼り直すため connStatus を依存に入れる
+  }, [connStatus]);
 
   // 再読み込み警告
   useEffect(() => {
@@ -481,7 +482,8 @@ export function GamePage() {
 
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, []);
+    // connStatus を依存に入れることで canvas が DOM に入ってから ref が取れる
+  }, [connStatus]);
 
   const resign = () => {
     if (!confirm('本当に降参しますか？この試合は敗北として記録されます。'))
