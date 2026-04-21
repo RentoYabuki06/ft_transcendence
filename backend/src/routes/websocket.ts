@@ -2,47 +2,42 @@ import { FastifyInstance } from 'fastify'
 import { WebSocket } from '@fastify/websocket'
 import { verifyToken } from '../lib/auth.js'
 import prisma from '../lib/prisma.js'
-
-// WINNING_SCORE はフロント側で定義（11点先取）
+import {
+  buildSnapshot,
+  COUNTDOWN_MS,
+  createInitialState,
+  GameState,
+  launchBall,
+  Side,
+  SNAPSHOT_MS,
+  tick,
+  TICK_MS,
+} from '../lib/gameEngine.js'
 
 // --- 接続管理 ---
 // presenceMap: userId -> WebSocket (オンライン状態)
 const presenceMap = new Map<number, WebSocket>()
 // matchmakingMap: userId -> WebSocket (マッチング通知待ち)
 const matchmakingMap = new Map<number, WebSocket>()
-// gameRooms: gameId -> Map<userId, WebSocket> (ゲームルーム)
-const gameRooms = new Map<number, Map<number, WebSocket>>()
-// gameScores: gameId -> Map<userId, score> (最新スコア、切断時のレコード保存用)
-const gameScores = new Map<number, Map<number, number>>()
-// gameHosts: gameId -> userId (各試合のホスト。score_update/ball_update を正当化するため)
-const gameHosts = new Map<number, number>()
-// gameStarted: gameId -> true (game_start を既に送信した試合)
-const gameStarted = new Map<number, boolean>()
-// disconnectTimers: gameId -> Map<userId, Timeout> (切断猶予タイマー)
-const disconnectTimers = new Map<number, Map<number, NodeJS.Timeout>>()
-// roomDropTimers: gameId -> Timeout (両者切断時のルーム削除タイマー)
-const roomDropTimers = new Map<number, NodeJS.Timeout>()
+
+// --- ゲームインスタンス ---
+interface GameInstance {
+  id: number
+  leftId: number
+  rightId: number
+  sockets: Map<number, WebSocket> // userId -> socket
+  state: GameState
+  tickInterval: NodeJS.Timeout | null
+  snapshotInterval: NodeJS.Timeout | null
+  finishing: boolean
+  playerGraceTimers: Map<number, NodeJS.Timeout>
+  roomDropTimer: NodeJS.Timeout | null
+}
+
+const gameInstances = new Map<number, GameInstance>()
 
 const PLAYER_GRACE_MS = 15_000 // 片方切断の猶予
 const ROOM_DROP_MS = 60_000    // 両者切断の猶予
-
-function clearPlayerTimer(gameId: number, userId: number) {
-  const map = disconnectTimers.get(gameId)
-  const t = map?.get(userId)
-  if (t) {
-    clearTimeout(t)
-    map!.delete(userId)
-    if (map!.size === 0) disconnectTimers.delete(gameId)
-  }
-}
-
-function clearRoomDropTimer(gameId: number) {
-  const t = roomDropTimers.get(gameId)
-  if (t) {
-    clearTimeout(t)
-    roomDropTimers.delete(gameId)
-  }
-}
 // chatMap: userId -> Set<WebSocket> (チャットリアルタイム配信、複数タブ対応)
 const chatMap = new Map<number, Set<WebSocket>>()
 
@@ -208,7 +203,7 @@ export async function websocketRoutes(fastify: FastifyInstance) {
   })
 
   // ----------------------------------------------------------------
-  // WS /ws/game/:id — ゲームリアルタイム同期
+  // WS /ws/game/:id — ゲームリアルタイム同期（サーバー権威モデル）
   // ----------------------------------------------------------------
   fastify.get('/ws/game/:id', { websocket: true }, async (socket, request) => {
     const token = (request.query as Record<string, string>).token
@@ -226,321 +221,307 @@ export async function websocketRoutes(fastify: FastifyInstance) {
       return
     }
 
-    // ゲームの参加者か確認
-    const score = await prisma.playerScores.findFirst({ where: { gameId, userId } })
-    if (!score) {
+    // 参加者確認 & 並び取得（playerScores.id 昇順を左右の順とみなす）
+    const participants = await prisma.playerScores.findMany({
+      where: { gameId },
+      orderBy: { id: 'asc' },
+    })
+    if (participants.length !== 2 || !participants.some(p => p.userId === userId)) {
       socket.send(JSON.stringify({ type: 'error', message: 'このゲームに参加していません' }))
       socket.close()
       return
     }
 
-    // 既に終了している試合には接続を許可しない
-    const gameState = await prisma.games.findUnique({ where: { id: gameId } })
+    const gameRow = await prisma.games.findUnique({ where: { id: gameId } })
     const finishedStatusCheck = await prisma.statuses.findFirst({
       where: { category: 'game', name: 'finished' },
     })
-    if (gameState && finishedStatusCheck && gameState.statusId === finishedStatusCheck.id) {
+    if (gameRow && finishedStatusCheck && gameRow.statusId === finishedStatusCheck.id) {
       socket.send(JSON.stringify({ type: 'error', message: 'この試合は既に終了しています' }))
       socket.close()
       return
     }
 
-    // ゲームルームに追加（既存ソケットがあれば再接続扱い）
-    if (!gameRooms.has(gameId)) gameRooms.set(gameId, new Map())
-    const room = gameRooms.get(gameId)!
-    const previousSocket = room.get(userId)
-    const isReconnect = !!previousSocket && gameStarted.get(gameId) === true
+    // インスタンス取得 or 生成
+    let inst = gameInstances.get(gameId)
+    if (!inst) {
+      inst = {
+        id: gameId,
+        leftId: participants[0].userId,
+        rightId: participants[1].userId,
+        sockets: new Map(),
+        state: createInitialState(),
+        tickInterval: null,
+        snapshotInterval: null,
+        finishing: false,
+        playerGraceTimers: new Map(),
+        roomDropTimer: null,
+      }
+      gameInstances.set(gameId, inst)
+    }
+
+    const side: Side = userId === inst.leftId ? 'left' : 'right'
+
+    // 既存ソケットを置き換え（再接続）
+    const previousSocket = inst.sockets.get(userId)
+    const isReconnect = !!previousSocket && inst.state.phase !== 'waiting'
     if (previousSocket && previousSocket !== socket && previousSocket.readyState === previousSocket.OPEN) {
       try { previousSocket.close() } catch { /* ignore */ }
     }
-    room.set(userId, socket)
+    inst.sockets.set(userId, socket)
 
     // 猶予タイマーをキャンセル
-    clearPlayerTimer(gameId, userId)
-    clearRoomDropTimer(gameId)
+    const gt = inst.playerGraceTimers.get(userId)
+    if (gt) {
+      clearTimeout(gt)
+      inst.playerGraceTimers.delete(userId)
+    }
+    if (inst.roomDropTimer) {
+      clearTimeout(inst.roomDropTimer)
+      inst.roomDropTimer = null
+    }
 
-    socket.send(JSON.stringify({ type: 'connected', gameId, userId, reconnect: isReconnect }))
+    socket.send(JSON.stringify({
+      type: 'connected',
+      gameId,
+      yourSide: side,
+      players: { left: inst.leftId, right: inst.rightId },
+      reconnect: isReconnect,
+    }))
 
     if (isReconnect) {
-      // 再接続を相手に通知し、最新スコアを送って state を復元
-      const known = gameScores.get(gameId)
-      const host = gameHosts.get(gameId)
-      for (const [pid, ws] of room.entries()) {
+      // 再接続通知 + 最新snapshotを即送信
+      for (const [pid, ws] of inst.sockets.entries()) {
         if (pid !== userId && ws.readyState === ws.OPEN) {
           ws.send(JSON.stringify({ type: 'opponent_reconnected', userId }))
         }
       }
-      socket.send(JSON.stringify({
-        type: 'game_resumed',
-        gameId,
-        hostId: host,
-        scores: known ? Object.fromEntries(known) : {},
-      }))
-    } else if (room.size === 2 && !gameStarted.get(gameId)) {
-      const players = [...room.keys()]
-      // 最初に入室したプレイヤー = ホスト（score_update/ball_update の送信権を持つ）
-      gameHosts.set(gameId, players[0])
-      gameStarted.set(gameId, true)
-      broadcast(room, { type: 'game_start', gameId, players })
+      socket.send(JSON.stringify(buildSnapshot(inst.state)))
+    } else if (inst.sockets.size === 2 && inst.state.phase === 'waiting') {
+      inst.state.phase = 'countdown'
+      inst.state.countdownEndsAt = Date.now() + COUNTDOWN_MS
+      inst.state.serveSide = Math.random() < 0.5 ? 'left' : 'right'
+      inst.state.lastUpdate = Date.now()
+      broadcastInstance(inst, {
+        type: 'game_start',
+        players: { left: inst.leftId, right: inst.rightId },
+        countdownEndsAt: inst.state.countdownEndsAt,
+        serveSide: inst.state.serveSide,
+      })
+      startGameLoops(inst)
     }
 
-    socket.on('message', async (rawMsg: Buffer) => {
+    socket.on('message', (rawMsg: Buffer) => {
+      if (!inst) return
       try {
-        const msg = JSON.parse(rawMsg.toString()) as {
-          type: string
-          paddleY?: number
-          score?: { [userId: number]: number }
-          winnerId?: number | null
-          myScore?: number
-          opponentScore?: number
-        }
-
-        if (msg.type === 'paddle_move') {
-          // パドル移動を相手に転送
-          const room = gameRooms.get(gameId)
-          if (room) {
-            for (const [pid, ws] of room.entries()) {
-              if (pid !== userId && ws.readyState === ws.OPEN) {
-                ws.send(JSON.stringify({ type: 'opponent_paddle', paddleY: msg.paddleY, from: userId }))
-              }
-            }
+        const msg = JSON.parse(rawMsg.toString())
+        const input = side === 'left' ? inst.state.inputLeft : inst.state.inputRight
+        if (msg.type === 'input') {
+          input.up = !!msg.up
+          input.down = !!msg.down
+        } else if (msg.type === 'serve') {
+          if (inst.state.phase === 'serving' && inst.state.serveSide === side) {
+            launchBall(inst.state)
           }
-        } else if (msg.type === 'score_update') {
-          // ホスト以外からの score_update は無視（改ざん防止）
-          if (gameHosts.get(gameId) !== userId) return
-          // ホストがスコアを通知 → ゲストに転送、切断時のスコア記録用に保存
-          const room = gameRooms.get(gameId)
-          if (room) {
-            // 送信者(ホスト)視点: myScore = 送信者, opponentScore = 相手
-            let scoreMap = gameScores.get(gameId)
-            if (!scoreMap) {
-              scoreMap = new Map()
-              gameScores.set(gameId, scoreMap)
-            }
-            scoreMap.set(userId, msg.myScore ?? 0)
-            for (const pid of room.keys()) {
-              if (pid !== userId) scoreMap.set(pid, msg.opponentScore ?? 0)
-            }
-            for (const [pid, ws] of room.entries()) {
-              if (pid !== userId && ws.readyState === ws.OPEN) {
-                ws.send(JSON.stringify({ type: 'score_update', myScore: msg.myScore, opponentScore: msg.opponentScore, from: userId }))
-              }
-            }
-          }
-        } else if (msg.type === 'serve_ready' || msg.type === 'serve_launch') {
-          const room = gameRooms.get(gameId)
-          if (room) {
-            for (const [pid, ws] of room.entries()) {
-              if (pid !== userId && ws.readyState === ws.OPEN) {
-                ws.send(JSON.stringify({ ...msg, from: userId }))
-              }
-            }
-          }
-        } else if (msg.type === 'ball_update') {
-          // ホスト以外からの ball_update は無視
-          if (gameHosts.get(gameId) !== userId) return
-          // ボール位置をゲストに転送（ホストのみ送信）
-          const room = gameRooms.get(gameId)
-          if (room) {
-            for (const [pid, ws] of room.entries()) {
-              if (pid !== userId && ws.readyState === ws.OPEN) {
-                ws.send(JSON.stringify({ ...msg, from: userId }))
-              }
-            }
-          }
-        } else if (msg.type === 'match_result') {
-          // ホストのみ決着を通知可能
-          if (gameHosts.get(gameId) !== userId) return
-          const senderScore = msg.myScore ?? 0
-          const opponentScore = msg.opponentScore ?? 0
-          const opponentId = [...room.keys()].find((id) => id !== userId)
-          const winnerId =
-            typeof msg.winnerId === 'number'
-              ? msg.winnerId
-              : senderScore >= opponentScore
-                ? userId
-                : (opponentId ?? userId)
-          const scores = new Map<number, number>()
-          scores.set(userId, senderScore)
-          if (opponentId !== undefined) scores.set(opponentId, opponentScore)
-          await handleGameOver(gameId, winnerId, room, scores)
         } else if (msg.type === 'resign') {
-          // 送信者の降参 → 相手が勝者
-          const opponentId = [...room.keys()].find((id) => id !== userId)
-          const winnerId = opponentId ?? userId
-          const known = gameScores.get(gameId)
-          const scores = new Map<number, number>()
-          scores.set(userId, known?.get(userId) ?? 0)
-          if (opponentId !== undefined) scores.set(opponentId, known?.get(opponentId) ?? 0)
-          await handleGameOver(gameId, winnerId, room, scores)
+          // 相手が勝者、即終了
+          inst.state.phase = 'finished'
+          inst.state.winnerSide = side === 'left' ? 'right' : 'left'
+          // 次の tick で finalize が呼ばれる
         }
       } catch {
         // JSON parse error は無視
       }
     })
 
-    socket.on('close', async () => {
-      const room = gameRooms.get(gameId)
-      if (!room) return
-      // 既に置き換わっている（再接続）場合は何もしない
-      if (room.get(userId) !== socket) return
-      room.delete(userId)
+    socket.on('close', () => {
+      if (!inst) return
+      // 既に別 socket に置き換わっている場合は何もしない（再接続パス）
+      if (inst.sockets.get(userId) !== socket) return
+      inst.sockets.delete(userId)
 
-      // 試合が既に finished なら掃除して終わり
-      const finishedStatus = await prisma.statuses.findFirst({
-        where: { category: 'game', name: 'finished' },
-      })
-      const game = await prisma.games.findUnique({ where: { id: gameId } })
-      const isFinished = !!(game && finishedStatus && game.statusId === finishedStatus.id)
-      if (isFinished || !gameStarted.get(gameId)) {
-        if (room.size === 0) {
-          gameRooms.delete(gameId)
-          gameStarted.delete(gameId)
-          gameHosts.delete(gameId)
-          gameScores.delete(gameId)
+      // 入力状態クリア（押しっぱなしで消えるのを防ぐ）
+      const input = side === 'left' ? inst.state.inputLeft : inst.state.inputRight
+      input.up = false
+      input.down = false
+
+      if (inst.state.phase === 'finished' || inst.state.phase === 'waiting') {
+        // 終了済み or 未開始: 両者いなければクリーンアップ
+        if (inst.sockets.size === 0 && inst.state.phase === 'waiting') {
+          stopGameLoops(inst)
+          gameInstances.delete(gameId)
         }
         return
       }
 
-      if (room.size === 0) {
-        // 両者切断 → ROOM_DROP_MS 経過しても誰も戻らなければ試合をドロップ（pending のまま掃除）
-        broadcast(room, { type: 'opponent_disconnected', userId, graceSeconds: ROOM_DROP_MS / 1000 })
-        clearRoomDropTimer(gameId)
-        roomDropTimers.set(
-          gameId,
-          setTimeout(async () => {
-            roomDropTimers.delete(gameId)
-            const r = gameRooms.get(gameId)
-            if (r && r.size > 0) return // 誰か戻った
-            // 両者不在のまま時間切れ → 試合を放棄扱いにして finished（winner=null）
-            const finished = await prisma.statuses.findFirst({
-              where: { category: 'game', name: 'finished' },
-            })
-            if (finished) {
-              const g = await prisma.games.findUnique({ where: { id: gameId } })
-              if (g && g.statusId !== finished.id) {
-                await prisma.games.update({
-                  where: { id: gameId },
-                  data: { statusId: finished.id, winnerId: null },
-                })
-                await prisma.playerScores.updateMany({
-                  where: { gameId },
-                  data: { statusId: finished.id, isWinner: false },
-                })
-              }
-            }
-            gameRooms.delete(gameId)
-            gameStarted.delete(gameId)
-            gameHosts.delete(gameId)
-            gameScores.delete(gameId)
-          }, ROOM_DROP_MS)
-        )
+      if (inst.sockets.size === 0) {
+        // 両者切断 → ROOM_DROP_MS の猶予
+        broadcastInstance(inst, {
+          type: 'opponent_disconnected',
+          userId,
+          graceSeconds: ROOM_DROP_MS / 1000,
+        })
+        if (inst.roomDropTimer) clearTimeout(inst.roomDropTimer)
+        inst.roomDropTimer = setTimeout(() => {
+          if (!inst) return
+          if (inst.sockets.size > 0) return
+          // 放棄: winner=null で終了
+          inst.state.phase = 'finished'
+          inst.state.winnerSide = null
+          // finalize は tick で拾われる
+        }, ROOM_DROP_MS)
         return
       }
 
-      // 片方だけ切断 → 残存側に猶予タイマーの通知、一定時間後に forfeit
-      broadcast(room, {
+      // 片方残存: PLAYER_GRACE_MS の猶予
+      broadcastInstance(inst, {
         type: 'opponent_disconnected',
         userId,
         graceSeconds: PLAYER_GRACE_MS / 1000,
       })
-      let timerMap = disconnectTimers.get(gameId)
-      if (!timerMap) {
-        timerMap = new Map()
-        disconnectTimers.set(gameId, timerMap)
-      }
-      // 既存タイマーがあれば置き換え
-      const existing = timerMap.get(userId)
+      const existing = inst.playerGraceTimers.get(userId)
       if (existing) clearTimeout(existing)
-      timerMap.set(
+      inst.playerGraceTimers.set(
         userId,
-        setTimeout(async () => {
-          const r = gameRooms.get(gameId)
-          if (!r) return
-          if (r.has(userId)) return // 再接続済み
-          const winnerId = [...r.keys()][0]
-          if (!winnerId) return
-          const known = gameScores.get(gameId)
-          const scores = new Map<number, number>()
-          scores.set(winnerId, known?.get(winnerId) ?? 0)
-          scores.set(userId, known?.get(userId) ?? 0)
-          await handleGameOver(gameId, winnerId, r, scores)
-          clearPlayerTimer(gameId, userId)
-        }, PLAYER_GRACE_MS)
+        setTimeout(() => {
+          if (!inst) return
+          if (inst.sockets.has(userId)) return // 再接続済み
+          inst.state.phase = 'finished'
+          inst.state.winnerSide = side === 'left' ? 'right' : 'left'
+          // finalize は tick で拾われる
+        }, PLAYER_GRACE_MS),
       )
     })
 
     socket.on('error', () => {
-      // 実質 close と同じパスを通るのでここでは room から消さない
+      // close が別途呼ばれるのでここでは何もしない
     })
   })
 }
 
-// ゲーム終了処理（スコア記録・実績解除）
-async function handleGameOver(
-  gameId: number,
-  winnerId: number,
-  room: Map<number, WebSocket>,
-  scoresByUser?: Map<number, number>,
-) {
+// インスタンス向け broadcast
+function broadcastInstance(inst: GameInstance, data: unknown) {
+  const msg = JSON.stringify(data)
+  for (const ws of inst.sockets.values()) {
+    if (ws.readyState === ws.OPEN) ws.send(msg)
+  }
+}
+
+// 60Hz 物理 tick と 30Hz snapshot broadcast を開始
+function startGameLoops(inst: GameInstance) {
+  if (inst.tickInterval) return
+  inst.tickInterval = setInterval(() => {
+    tick(inst.state, Date.now())
+    if (inst.state.phase === 'finished' && !inst.finishing) {
+      inst.finishing = true
+      finalizeGame(inst).catch(err => {
+        console.error('finalizeGame error:', err)
+      })
+    }
+  }, TICK_MS)
+  inst.snapshotInterval = setInterval(() => {
+    if (inst.sockets.size === 0) return
+    broadcastInstance(inst, buildSnapshot(inst.state))
+  }, SNAPSHOT_MS)
+}
+
+function stopGameLoops(inst: GameInstance) {
+  if (inst.tickInterval) {
+    clearInterval(inst.tickInterval)
+    inst.tickInterval = null
+  }
+  if (inst.snapshotInterval) {
+    clearInterval(inst.snapshotInterval)
+    inst.snapshotInterval = null
+  }
+}
+
+// ゲーム終了: DB 保存 → 通知 → 後片付け
+async function finalizeGame(inst: GameInstance) {
   const finishedStatus = await prisma.statuses.findFirst({
     where: { category: 'game', name: 'finished' },
   })
   if (!finishedStatus) return
 
-  // 二重処理防止: 既に finished なら何もしない
-  const game = await prisma.games.findUnique({ where: { id: gameId } })
-  if (!game || game.statusId === finishedStatus.id) return
+  const winnerId =
+    inst.state.winnerSide === 'left' ? inst.leftId
+    : inst.state.winnerSide === 'right' ? inst.rightId
+    : null
 
-  await prisma.games.update({
-    where: { id: gameId },
-    data: { statusId: finishedStatus.id, winnerId },
-  })
-
-  // PlayerScores の isWinner とスコアを更新（statusId も finished に）
-  const scores = await prisma.playerScores.findMany({ where: { gameId } })
-  for (const s of scores) {
-    await prisma.playerScores.update({
-      where: { id: s.id },
-      data: {
-        isWinner: s.userId === winnerId,
-        statusId: finishedStatus.id,
-        ...(scoresByUser?.has(s.userId) ? { score: scoresByUser.get(s.userId)! } : {}),
-      },
+  const game = await prisma.games.findUnique({ where: { id: inst.id } })
+  if (game && game.statusId !== finishedStatus.id) {
+    await prisma.games.update({
+      where: { id: inst.id },
+      data: { statusId: finishedStatus.id, winnerId },
     })
+    const playerScores = await prisma.playerScores.findMany({ where: { gameId: inst.id } })
+    for (const ps of playerScores) {
+      const isLeftPlayer = ps.userId === inst.leftId
+      await prisma.playerScores.update({
+        where: { id: ps.id },
+        data: {
+          isWinner: winnerId !== null && ps.userId === winnerId,
+          statusId: finishedStatus.id,
+          score: isLeftPlayer ? inst.state.scoreLeft : inst.state.scoreRight,
+        },
+      })
+    }
+
+    // 待機部屋クリーンアップ（再マッチ時の干渉防止）
+    const participantUserIds = [inst.leftId, inst.rightId]
+    const stalePairs = await prisma.waitingRoomParticipants.findMany({
+      where: { userId: { in: participantUserIds } },
+    })
+    const staleRoomIds = [...new Set(stalePairs.map(p => p.waitingRoomId))]
+    if (staleRoomIds.length > 0) {
+      await prisma.waitingRoomParticipants.deleteMany({
+        where: { waitingRoomId: { in: staleRoomIds } },
+      })
+      await prisma.waitingRooms.deleteMany({
+        where: { id: { in: staleRoomIds } },
+      })
+    }
   }
 
-  // 試合に関連する待機部屋レコードをクリーンアップ（再マッチ時の干渉防止）
-  const participantUserIds = scores.map(s => s.userId)
-  const stalePairs = await prisma.waitingRoomParticipants.findMany({
-    where: { userId: { in: participantUserIds } },
+  // 最終 snapshot と game_finished を broadcast
+  broadcastInstance(inst, buildSnapshot(inst.state))
+  broadcastInstance(inst, {
+    type: 'game_finished',
+    winnerId,
+    scoreLeft: inst.state.scoreLeft,
+    scoreRight: inst.state.scoreRight,
   })
-  const staleRoomIds = [...new Set(stalePairs.map(p => p.waitingRoomId))]
-  if (staleRoomIds.length > 0) {
-    await prisma.waitingRoomParticipants.deleteMany({
-      where: { waitingRoomId: { in: staleRoomIds } },
-    })
-    await prisma.waitingRooms.deleteMany({
-      where: { id: { in: staleRoomIds } },
-    })
-  }
 
   // 実績チェック
-  for (const playerId of [...room.keys()]) {
-    await checkAndUnlockAchievements(playerId)
+  for (const pid of [inst.leftId, inst.rightId]) {
+    try {
+      await checkAndUnlockAchievements(pid)
+    } catch {
+      /* ignore */
+    }
   }
 
-  broadcast(room, { type: 'game_finished', gameId, winnerId })
-  gameScores.delete(gameId)
-  gameHosts.delete(gameId)
-  gameStarted.delete(gameId)
-  // 進行中タイマーもクリア
-  const tmap = disconnectTimers.get(gameId)
-  if (tmap) {
-    for (const t of tmap.values()) clearTimeout(t)
-    disconnectTimers.delete(gameId)
+  stopGameLoops(inst)
+
+  // タイマー類クリア
+  for (const t of inst.playerGraceTimers.values()) clearTimeout(t)
+  inst.playerGraceTimers.clear()
+  if (inst.roomDropTimer) {
+    clearTimeout(inst.roomDropTimer)
+    inst.roomDropTimer = null
   }
-  clearRoomDropTimer(gameId)
+
+  // 少し待ってからソケットを閉じてインスタンス削除
+  setTimeout(() => {
+    for (const ws of inst.sockets.values()) {
+      try {
+        if (ws.readyState === ws.OPEN) ws.close()
+      } catch {
+        /* ignore */
+      }
+    }
+    gameInstances.delete(inst.id)
+  }, 1000)
 }
 
 // --- 実績チェック・解除 ---
