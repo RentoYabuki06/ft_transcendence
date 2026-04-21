@@ -631,7 +631,15 @@ export function GamePage() {
               width: 'min(calc(100vh - 14rem), calc(100vw - 2rem) * 1.6)',
               aspectRatio: '5 / 8',
               maxWidth: '500px',
-            } : undefined}
+              marginLeft: 'auto',
+              marginRight: 'auto',
+            } : {
+              width: '100%',
+              maxWidth: 'min(calc(100vw - 4rem), calc((100vh - 18rem) * 1.6), 800px)',
+              aspectRatio: '8 / 5',
+              marginLeft: 'auto',
+              marginRight: 'auto',
+            }}
           >
             <canvas
               ref={canvasRef}
@@ -651,10 +659,9 @@ export function GamePage() {
               } : {
                 border: '1px solid rgba(0, 212, 255, 0.15)',
                 boxShadow: '0 0 40px rgba(0, 212, 255, 0.05), inset 0 0 40px rgba(0, 0, 0, 0.5)',
+                display: 'block',
                 width: '100%',
-                maxWidth: 'min(100%, calc((100vh - 18rem) * 1.6))',
-                height: 'auto',
-                aspectRatio: '8 / 5',
+                height: '100%',
               }}
             />
 
