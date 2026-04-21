@@ -17,8 +17,9 @@ export function ProfileEditPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // 2FA
-  const [twoFaQrUrl, setTwoFaQrUrl] = useState<string | null>(null);
+  // 2FA (email OTP)
+  const [twoFaSetupStarted, setTwoFaSetupStarted] = useState(false);
+  const [twoFaSentTo, setTwoFaSentTo] = useState<string>('');
   const [twoFaCode, setTwoFaCode] = useState('');
   const [twoFaBusy, setTwoFaBusy] = useState(false);
 
@@ -72,7 +73,8 @@ export function ProfileEditPage() {
     setMessage(null);
     try {
       const res = await api.setup2FA();
-      setTwoFaQrUrl(res.qrCodeUrl);
+      setTwoFaSetupStarted(true);
+      setTwoFaSentTo(res.email);
     } catch (e) {
       setMessage({ type: 'error', text: e instanceof Error ? e.message : '2FA設定の開始に失敗しました' });
     } finally {
@@ -87,7 +89,7 @@ export function ProfileEditPage() {
     try {
       await api.verify2FA(twoFaCode);
       updateUser({ ...user, isTwoFactorEnabled: true });
-      setTwoFaQrUrl(null);
+      setTwoFaSetupStarted(false);
       setTwoFaCode('');
       setMessage({ type: 'success', text: '2FAを有効化しました' });
     } catch (e) {
@@ -255,12 +257,12 @@ export function ProfileEditPage() {
               2FAを無効にする
             </button>
           </div>
-        ) : twoFaQrUrl ? (
+        ) : twoFaSetupStarted ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center' }}>
             <p className="text-sm text-star-white/60 text-center">
-              Google Authenticator などの認証アプリで<br />以下のQRコードをスキャンしてください
+              {twoFaSentTo} に確認コードを送信しました。<br />
+              メールに記載されている6桁のコードを入力してください。
             </p>
-            <img src={twoFaQrUrl} alt="2FA QR code" style={{ width: 200, height: 200, borderRadius: 12, background: '#fff', padding: 8 }} />
             <input
               type="text"
               inputMode="numeric"
@@ -279,7 +281,14 @@ export function ProfileEditPage() {
                 有効化する
               </button>
               <button
-                onClick={() => { setTwoFaQrUrl(null); setTwoFaCode(''); }}
+                onClick={handle2FASetup}
+                disabled={twoFaBusy}
+                className="cosmic-btn"
+              >
+                コードを再送
+              </button>
+              <button
+                onClick={() => { setTwoFaSetupStarted(false); setTwoFaCode(''); }}
                 className="cosmic-btn"
               >
                 キャンセル

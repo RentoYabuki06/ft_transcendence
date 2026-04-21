@@ -24,7 +24,7 @@ interface GameState {
   serverIsMe: boolean;
 }
 
-type ConnectionStatus = 'connecting' | 'waiting' | 'countdown' | 'playing' | 'finished' | 'error';
+type ConnectionStatus = 'connecting' | 'waiting' | 'countdown' | 'playing' | 'paused' | 'reconnecting' | 'finished' | 'error';
 
 export function GamePage() {
   const { id: gameId } = useParams<{ id: string }>();
@@ -46,6 +46,11 @@ export function GamePage() {
   const [winner, setWinner] = useState<'me' | 'opponent' | null>(null);
   const [countdown, setCountdown] = useState<number>(0);
   const [disconnectReason, setDisconnectReason] = useState<'opponent_left' | 'network' | null>(null);
+  const [pauseSeconds, setPauseSeconds] = useState<number | null>(null);
+  const pauseTimerRef = useRef<number | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const intentionalCloseRef = useRef(false);
+  const statusBeforePauseRef = useRef<ConnectionStatus | null>(null);
   const [servingState, setServingState] = useState<{ serving: boolean; serverIsMe: boolean }>({ serving: false, serverIsMe: false });
   const [portrait, setPortrait] = useState(() =>
     typeof window !== 'undefined' && window.innerHeight > window.innerWidth,
@@ -86,18 +91,33 @@ export function GamePage() {
     if (!token || !gameId || !user) return;
 
     const wsUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/ws/game/${gameId}?token=${token}`;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
     gameRef.current = initGame();
+    intentionalCloseRef.current = false;
 
-    ws.onopen = () => setConnStatus('waiting');
+    const connect = () => {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      attachHandlers(ws);
+    };
+
+    const attachHandlers = (ws: WebSocket) => {
+    ws.onopen = () => {
+      reconnectAttemptsRef.current = 0;
+      setConnStatus((prev) => (prev === 'reconnecting' ? 'reconnecting' : 'waiting'));
+    };
 
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       const state = gameRef.current;
 
-      if (msg.type === 'connected') {
-        setConnStatus('waiting');
+      if (msg.type === 'error') {
+        // サーバー側から拒否された（試合終了済み・非参加者など）
+        intentionalCloseRef.current = true;
+        setDisconnectReason('network');
+        setConnStatus('error');
+        return;
+      } else if (msg.type === 'connected') {
+        setConnStatus((prev) => (prev === 'reconnecting' ? prev : 'waiting'));
       } else if (msg.type === 'game_start') {
         isHostRef.current = msg.players[0] === user.id;
         playersRef.current = msg.players;
@@ -152,31 +172,109 @@ export function GamePage() {
         }
       } else if (msg.type === 'game_finished') {
         gameEndedRef.current = true;
+        intentionalCloseRef.current = true;
         if (state) state.running = false;
-        setWinner(msg.winnerId === user.id ? 'me' : 'opponent');
+        if (msg.winnerId == null) {
+          setWinner(null);
+        } else {
+          setWinner(msg.winnerId === user.id ? 'me' : 'opponent');
+        }
         setConnStatus('finished');
+        if (pauseTimerRef.current !== null) {
+          window.clearInterval(pauseTimerRef.current);
+          pauseTimerRef.current = null;
+        }
+        setPauseSeconds(null);
       } else if (msg.type === 'opponent_disconnected') {
         if (state) state.running = false;
-        setDisconnectReason('opponent_left');
-        setConnStatus('error');
+        statusBeforePauseRef.current = connStatus === 'paused' ? statusBeforePauseRef.current : connStatus;
+        setConnStatus('paused');
+        const grace = typeof msg.graceSeconds === 'number' ? msg.graceSeconds : 15;
+        setPauseSeconds(grace);
+        if (pauseTimerRef.current !== null) window.clearInterval(pauseTimerRef.current);
+        pauseTimerRef.current = window.setInterval(() => {
+          setPauseSeconds((s) => {
+            if (s === null) return null;
+            if (s <= 1) {
+              if (pauseTimerRef.current !== null) {
+                window.clearInterval(pauseTimerRef.current);
+                pauseTimerRef.current = null;
+              }
+              return 0;
+            }
+            return s - 1;
+          });
+        }, 1000);
+      } else if (msg.type === 'opponent_reconnected') {
+        if (pauseTimerRef.current !== null) {
+          window.clearInterval(pauseTimerRef.current);
+          pauseTimerRef.current = null;
+        }
+        setPauseSeconds(null);
+        setConnStatus((prev) => (prev === 'paused' ? (statusBeforePauseRef.current ?? 'playing') : prev));
+        if (state) state.running = true;
+      } else if (msg.type === 'game_resumed') {
+        // 自分が再接続したときサーバーから届く
+        if (msg.scores && user) {
+          const my = msg.scores[user.id] ?? 0;
+          const oppId = Object.keys(msg.scores).map(Number).find((id) => id !== user.id);
+          const opp = oppId !== undefined ? msg.scores[oppId] : 0;
+          if (state) {
+            state.myScore = my;
+            state.opponentScore = opp;
+          }
+          setScores({ my, opp });
+        }
+        if (typeof msg.hostId === 'number' && user) {
+          isHostRef.current = msg.hostId === user.id;
+        }
+        setConnStatus('playing');
+        if (state) state.running = true;
       }
     };
 
     ws.onerror = () => {
-      setDisconnectReason('network');
-      setConnStatus('error');
+      // onclose で再接続処理
     };
     ws.onclose = () => {
+      if (intentionalCloseRef.current) return;
+      // 対戦に入っていない状態で切れた場合は再接続しない
+      // （サーバーからの拒否・初回接続失敗など）
+      let shouldReconnect = false;
       setConnStatus((prev) => {
-        if (prev === 'playing' || prev === 'countdown') {
-          setDisconnectReason((r) => r ?? 'network');
-          return 'error';
+        if (prev === 'countdown' || prev === 'playing' || prev === 'paused' || prev === 'reconnecting') {
+          shouldReconnect = true;
+          return 'reconnecting';
         }
-        return prev;
+        setDisconnectReason('network');
+        return 'error';
       });
+      if (!shouldReconnect) return;
+
+      const attempts = reconnectAttemptsRef.current;
+      if (attempts >= 5) {
+        setDisconnectReason('network');
+        setConnStatus('error');
+        return;
+      }
+      reconnectAttemptsRef.current = attempts + 1;
+      const backoff = Math.min(8000, 1000 * Math.pow(2, attempts));
+      window.setTimeout(() => {
+        if (!intentionalCloseRef.current) connect();
+      }, backoff);
+    };
     };
 
-    return () => ws.close();
+    connect();
+
+    return () => {
+      intentionalCloseRef.current = true;
+      if (pauseTimerRef.current !== null) {
+        window.clearInterval(pauseTimerRef.current);
+        pauseTimerRef.current = null;
+      }
+      wsRef.current?.close();
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId, user?.id]);
 
@@ -277,7 +375,7 @@ export function GamePage() {
         gameEndedRef.current = true;
         const winnerId = hostWon ? user?.id : playersRef.current.find((p) => p !== user?.id);
         ws.send(JSON.stringify({
-          type: 'game_over',
+          type: 'match_result',
           winnerId,
           myScore: state.myScore,
           opponentScore: state.opponentScore,
@@ -329,42 +427,73 @@ export function GamePage() {
       if (!isHostRef.current) {
         state.ball.x += state.ball.vx;
         state.ball.y += state.ball.vy;
-        if (state.ball.y <= 0 || state.ball.y >= CANVAS_HEIGHT - BALL_SIZE) {
-          state.ball.vy *= -1;
+        if (state.ball.y - BALL_SIZE <= 0) {
+          state.ball.y = BALL_SIZE;
+          state.ball.vy = Math.abs(state.ball.vy);
+        } else if (state.ball.y + BALL_SIZE >= CANVAS_HEIGHT) {
+          state.ball.y = CANVAS_HEIGHT - BALL_SIZE;
+          state.ball.vy = -Math.abs(state.ball.vy);
         }
         return;
       }
 
+      // 前フレーム位置を記録して掃引衝突判定に使う
+      const prevX = state.ball.x;
+      const prevY = state.ball.y;
       state.ball.x += state.ball.vx;
       state.ball.y += state.ball.vy;
 
-      if (state.ball.y <= 0 || state.ball.y >= CANVAS_HEIGHT - BALL_SIZE) {
-        state.ball.vy *= -1;
+      // 上下壁（ball.x,y は中心、BALL_SIZE は半径）
+      if (state.ball.y - BALL_SIZE <= 0) {
+        state.ball.y = BALL_SIZE;
+        state.ball.vy = Math.abs(state.ball.vy);
+      } else if (state.ball.y + BALL_SIZE >= CANVAS_HEIGHT) {
+        state.ball.y = CANVAS_HEIGHT - BALL_SIZE;
+        state.ball.vy = -Math.abs(state.ball.vy);
       }
 
-      if (
-        state.ball.x <= PADDLE_WIDTH + 20 &&
-        state.ball.y + BALL_SIZE >= state.myPaddle.y &&
-        state.ball.y <= state.myPaddle.y + PADDLE_HEIGHT &&
-        state.ball.vx < 0
-      ) {
-        state.ball.vx = Math.abs(state.ball.vx) * 1.05;
-        state.ball.vy = ((state.ball.y - state.myPaddle.y) / PADDLE_HEIGHT - 0.5) * BALL_SPEED_INIT * 2;
+      // 左パドル: x=20 幅 PADDLE_WIDTH → 右端=20+PADDLE_WIDTH
+      const leftPaddleRight = 20 + PADDLE_WIDTH;
+      const leftCollisionX = leftPaddleRight + BALL_SIZE; // ボール中心がこの位置より左に来たらヒット
+      if (state.ball.vx < 0 && state.ball.x <= leftCollisionX && prevX > leftCollisionX) {
+        // 交差時刻 t ∈ [0,1] を求めて、その瞬間の y で判定（トンネリング対策）
+        const denom = prevX - state.ball.x;
+        const t = denom > 0 ? (prevX - leftCollisionX) / denom : 0;
+        const hitY = prevY + (state.ball.y - prevY) * t;
+        if (
+          hitY + BALL_SIZE >= state.myPaddle.y &&
+          hitY - BALL_SIZE <= state.myPaddle.y + PADDLE_HEIGHT
+        ) {
+          state.ball.x = leftCollisionX + 0.5;
+          state.ball.y = hitY;
+          state.ball.vx = Math.abs(state.ball.vx) * 1.05;
+          const rel = (hitY - (state.myPaddle.y + PADDLE_HEIGHT / 2)) / (PADDLE_HEIGHT / 2);
+          state.ball.vy = Math.max(-1, Math.min(1, rel)) * BALL_SPEED_INIT;
+        }
       }
 
-      if (
-        state.ball.x >= CANVAS_WIDTH - PADDLE_WIDTH - 20 - BALL_SIZE &&
-        state.ball.y + BALL_SIZE >= state.opponentPaddle.y &&
-        state.ball.y <= state.opponentPaddle.y + PADDLE_HEIGHT &&
-        state.ball.vx > 0
-      ) {
-        state.ball.vx = -Math.abs(state.ball.vx) * 1.05;
-        state.ball.vy = ((state.ball.y - state.opponentPaddle.y) / PADDLE_HEIGHT - 0.5) * BALL_SPEED_INIT * 2;
+      // 右パドル: x=CANVAS_WIDTH-20-PADDLE_WIDTH 左端=CANVAS_WIDTH-20-PADDLE_WIDTH
+      const rightPaddleLeft = CANVAS_WIDTH - 20 - PADDLE_WIDTH;
+      const rightCollisionX = rightPaddleLeft - BALL_SIZE;
+      if (state.ball.vx > 0 && state.ball.x >= rightCollisionX && prevX < rightCollisionX) {
+        const denom = state.ball.x - prevX;
+        const t = denom > 0 ? (rightCollisionX - prevX) / denom : 0;
+        const hitY = prevY + (state.ball.y - prevY) * t;
+        if (
+          hitY + BALL_SIZE >= state.opponentPaddle.y &&
+          hitY - BALL_SIZE <= state.opponentPaddle.y + PADDLE_HEIGHT
+        ) {
+          state.ball.x = rightCollisionX - 0.5;
+          state.ball.y = hitY;
+          state.ball.vx = -Math.abs(state.ball.vx) * 1.05;
+          const rel = (hitY - (state.opponentPaddle.y + PADDLE_HEIGHT / 2)) / (PADDLE_HEIGHT / 2);
+          state.ball.vy = Math.max(-1, Math.min(1, rel)) * BALL_SPEED_INIT;
+        }
       }
 
-      if (state.ball.x < 0) {
+      if (state.ball.x < -BALL_SIZE) {
         handleScore(state, false);
-      } else if (state.ball.x > CANVAS_WIDTH) {
+      } else if (state.ball.x > CANVAS_WIDTH + BALL_SIZE) {
         handleScore(state, true);
       }
 
@@ -473,7 +602,16 @@ export function GamePage() {
         </div>
       )}
 
-      {(connStatus === 'countdown' || connStatus === 'playing' || connStatus === 'finished') && (
+      {connStatus === 'reconnecting' && (
+        <div className="text-center">
+          <div className="font-display text-xl text-cosmic-cyan animate-pulse mb-4">
+            サーバーに再接続中...
+          </div>
+          <p className="text-sm text-star-white/30">Game #{gameId}</p>
+        </div>
+      )}
+
+      {(connStatus === 'countdown' || connStatus === 'playing' || connStatus === 'paused' || connStatus === 'finished') && (
         <>
           <div className="flex items-center gap-12 mb-6">
             <div className="text-center">
@@ -539,6 +677,17 @@ export function GamePage() {
               </div>
             )}
 
+            {connStatus === 'paused' && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center rounded-xl" style={{ background: 'rgba(5,10,24,0.75)', backdropFilter: 'blur(2px)', gap: '1rem' }}>
+                <div className="font-display text-2xl text-cosmic-cyan text-glow-cyan">相手が切断しました</div>
+                <div className="text-sm text-star-white/60">
+                  {pauseSeconds !== null && pauseSeconds > 0
+                    ? `${pauseSeconds} 秒以内に復帰しない場合、不戦勝になります`
+                    : '不戦勝処理中...'}
+                </div>
+              </div>
+            )}
+
             {connStatus === 'playing' && servingState.serving && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div
@@ -575,7 +724,9 @@ export function GamePage() {
                 <p className="font-display text-lg mb-2">
                   {winner === 'me'
                     ? <span className="text-cosmic-green">あなたの勝ち!</span>
-                    : <span className="text-cosmic-red">相手の勝ち</span>}
+                    : winner === 'opponent'
+                    ? <span className="text-cosmic-red">相手の勝ち</span>
+                    : <span className="text-star-white/60">試合が中断されました</span>}
                 </p>
                 <div className="font-display text-3xl text-star-white mb-8">
                   {scores.my} - {scores.opp}
@@ -591,6 +742,24 @@ export function GamePage() {
               </div>
             )}
           </div>
+
+          {(connStatus === 'playing' || connStatus === 'countdown' || connStatus === 'paused') && (
+            <div className="flex justify-center mt-4">
+              <button
+                onClick={() => {
+                  if (!confirm('本当に降参しますか？この試合は敗北として記録されます。')) return;
+                  const ws = wsRef.current;
+                  if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'resign' }));
+                  }
+                }}
+                className="cosmic-btn"
+                style={{ fontSize: '0.75rem', padding: '0.4rem 1rem', borderColor: 'rgba(251,113,133,0.3)', color: '#fb7185' }}
+              >
+                降参する
+              </button>
+            </div>
+          )}
 
           <div className="flex items-center gap-4 mt-6 text-xs text-star-white/20 flex-wrap justify-center">
             <span className="text-cosmic-cyan/40">操作:</span>

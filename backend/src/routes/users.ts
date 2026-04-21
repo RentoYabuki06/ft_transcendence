@@ -27,7 +27,14 @@ export async function userRoutes(fastify: FastifyInstance) {
     }
 
     const updateData: Record<string, unknown> = {}
-    if (nickname) updateData.nickname = nickname
+    if (nickname) {
+      if (typeof nickname !== 'string' || nickname.length < 2 || nickname.length > 20) {
+        return reply.code(400).send({ message: 'nickname は 2〜20 文字で入力してください' })
+      }
+      const dup = await prisma.users.findFirst({ where: { nickname, NOT: { id: userId } } })
+      if (dup) return reply.code(409).send({ message: 'このニックネームは既に使用されています' })
+      updateData.nickname = nickname
+    }
     if (email) {
       const existing = await prisma.users.findFirst({ where: { email, NOT: { id: userId } } })
       if (existing) return reply.code(409).send({ message: 'このメールアドレスは既に使用されています' })
@@ -206,7 +213,8 @@ export async function userRoutes(fastify: FastifyInstance) {
           name: anonNickname,
           nickname: anonNickname,
           pictureURL: null,
-          twoFactorSecret: null,
+          twoFactorCode: null,
+          twoFactorCodeExpiresAt: null,
           isTwoFactorEnabled: false,
         },
       }),

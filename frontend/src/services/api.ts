@@ -30,7 +30,7 @@ export const api = {
   login: (email: string, password: string) =>
     request<
       | { token: string; user: import('../types').User }
-      | { requires2fa: true; tempToken: string }
+      | { requires2fa: true; tempToken: string; email: string }
     >('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
@@ -40,6 +40,12 @@ export const api = {
     request<{ token: string; user: import('../types').User }>('/auth/2fa/challenge', {
       method: 'POST',
       body: JSON.stringify({ tempToken, code }),
+    }),
+
+  login2faResend: (tempToken: string) =>
+    request<{ message: string }>('/auth/2fa/resend', {
+      method: 'POST',
+      body: JSON.stringify({ tempToken }),
     }),
 
   signup: (data: { nickname: string; email: string; password: string }) =>
@@ -73,7 +79,7 @@ export const api = {
 
   // 2FA
   setup2FA: () =>
-    request<{ secret: string; qrCodeUrl: string }>('/users/me/2fa/setup', { method: 'POST' }),
+    request<{ message: string; email: string }>('/users/me/2fa/setup', { method: 'POST' }),
 
   verify2FA: (code: string) =>
     request<{ message: string }>('/users/me/2fa/verify', {
@@ -134,10 +140,19 @@ export const api = {
     request<import('../types').Friend[]>('/users/me/friends'),
 
   addFriend: (userId: number) =>
-    request<void>(`/users/me/friends/${userId}`, { method: 'POST' }),
+    request<{ status: 'pending' | 'accepted' }>(`/users/me/friends/${userId}`, { method: 'POST' }),
 
   removeFriend: (userId: number) =>
     request<void>(`/users/me/friends/${userId}`, { method: 'DELETE' }),
+
+  getFriendRequests: () =>
+    request<{
+      incoming: Array<{ id: number; user: { id: number; nickname: string; avatarUrl: string | null } | null; createdAt: string }>;
+      outgoing: Array<{ id: number; user: { id: number; nickname: string; avatarUrl: string | null } | null; createdAt: string }>;
+    }>('/users/me/friends/requests'),
+
+  acceptFriendRequest: (userId: number) =>
+    request<{ status: 'accepted' }>(`/users/me/friends/${userId}/accept`, { method: 'PATCH' }),
 
   // Games & Matching
   getMatchHistory: (params?: { page?: number; limit?: number; sort?: string }) => {
@@ -252,4 +267,7 @@ export const api = {
 
   startTournament: (id: number) =>
     request<{ message: string; tournamentId: number }>(`/tournaments/${id}/start`, { method: 'POST' }),
+
+  leaveTournament: (id: number) =>
+    request<{ message: string; deleted: boolean }>(`/tournaments/${id}/leave`, { method: 'DELETE' }),
 };

@@ -13,6 +13,8 @@ export function UserProfilePage() {
   const [user, setUser] = useState<User | null>(null);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [blocks, setBlocks] = useState<Array<{ id: number }>>([]);
+  const [outgoingIds, setOutgoingIds] = useState<Set<number>>(new Set());
+  const [incomingIds, setIncomingIds] = useState<Set<number>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState(false);
   const [error, setError] = useState('');
@@ -25,11 +27,14 @@ export function UserProfilePage() {
       api.getUser(Number(id)),
       api.getFriends().catch(() => []),
       api.getBlocks().catch(() => []),
+      api.getFriendRequests().catch(() => ({ incoming: [], outgoing: [] })),
     ])
-      .then(([u, fs, bs]) => {
+      .then(([u, fs, bs, reqs]) => {
         setUser(u);
         setFriends(fs as Friend[]);
         setBlocks(bs as Array<{ id: number }>);
+        setIncomingIds(new Set(reqs.incoming.map((r) => r.user?.id).filter(Boolean) as number[]));
+        setOutgoingIds(new Set(reqs.outgoing.map((r) => r.user?.id).filter(Boolean) as number[]));
       })
       .catch((err) => setError(err.message))
       .finally(() => setIsLoading(false));
@@ -43,17 +48,48 @@ export function UserProfilePage() {
   const isSelf = me?.id === user?.id;
   const isFriend = friends.some((f) => f.user.id === user?.id);
   const isBlocked = blocks.some((b) => b.id === user?.id);
+  const hasOutgoing = user ? outgoingIds.has(user.id) : false;
+  const hasIncoming = user ? incomingIds.has(user.id) : false;
 
   const handleAddFriend = async () => {
     if (!user) return;
     setActionBusy(true);
     setMessage('');
     try {
-      await api.addFriend(user.id);
-      setMessage('フレンドに追加しました');
+      const res = await api.addFriend(user.id);
+      setMessage(res.status === 'accepted' ? 'フレンドになりました' : 'フレンド申請を送信しました');
       loadAll();
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : '追加に失敗しました');
+      setMessage(e instanceof Error ? e.message : '申請に失敗しました');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleAcceptFriend = async () => {
+    if (!user) return;
+    setActionBusy(true);
+    setMessage('');
+    try {
+      await api.acceptFriendRequest(user.id);
+      setMessage('フレンド申請を承認しました');
+      loadAll();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : '承認に失敗しました');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleCancelRequest = async () => {
+    if (!user) return;
+    setActionBusy(true);
+    try {
+      await api.removeFriend(user.id);
+      setMessage('申請を取り消しました');
+      loadAll();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : '取消に失敗しました');
     } finally {
       setActionBusy(false);
     }
@@ -160,13 +196,29 @@ export function UserProfilePage() {
                   >
                     フレンド解除
                   </button>
+                ) : hasIncoming ? (
+                  <button
+                    onClick={handleAcceptFriend}
+                    disabled={actionBusy}
+                    className="cosmic-btn cosmic-btn-primary text-sm"
+                  >
+                    ✓ 申請を承認
+                  </button>
+                ) : hasOutgoing ? (
+                  <button
+                    onClick={handleCancelRequest}
+                    disabled={actionBusy}
+                    className="cosmic-btn text-sm"
+                  >
+                    申請取消
+                  </button>
                 ) : (
                   <button
                     onClick={handleAddFriend}
                     disabled={actionBusy}
                     className="cosmic-btn cosmic-btn-primary text-sm"
                   >
-                    ＋ フレンド追加
+                    ＋ フレンド申請
                   </button>
                 )}
                 <Link to={`/chat/${user.id}`} className="cosmic-btn text-sm">

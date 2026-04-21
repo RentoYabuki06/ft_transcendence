@@ -1,11 +1,11 @@
 import { FastifyInstance } from 'fastify'
 import bcrypt from 'bcryptjs'
-import speakeasy from 'speakeasy'
 import axios from 'axios'
 import prisma from '../lib/prisma.js'
 import { signToken } from '../lib/auth.js'
 import { authenticate } from '../lib/middleware.js'
 import { buildUserResponse } from '../lib/userBuilder.js'
+import { issueOtpAndSend, verifyOtp } from './twofa.js'
 
 export async function authRoutes(fastify: FastifyInstance) {
   // POST /auth/signup
@@ -33,6 +33,11 @@ export async function authRoutes(fastify: FastifyInstance) {
     const existing = await prisma.users.findUnique({ where: { email } })
     if (existing) {
       return reply.code(409).send({ message: 'このメールアドレスは既に使用されています' })
+    }
+
+    const existingNickname = await prisma.users.findUnique({ where: { nickname } })
+    if (existingNickname) {
+      return reply.code(409).send({ message: 'このニックネームは既に使用されています' })
     }
 
     const activeStatus = await prisma.statuses.findFirst({
@@ -97,10 +102,17 @@ export async function authRoutes(fastify: FastifyInstance) {
       return reply.code(401).send({ message: 'メールアドレスまたはパスワードが正しくありません' })
     }
 
-    // 2FA が有効な場合は仮トークンを返し、チャレンジを要求
+    // 2FA が有効な場合: OTP をメール送信し、仮トークンを返す
     if (user.isTwoFactorEnabled) {
-      const tempToken = signToken({ userId: user.id, email: user.email, twoFaPending: true } as any)
-      return reply.send({ requires2fa: true, tempToken })
+      await issueOtpAndSend(user.id, user.email, user.nickname)
+      const tempToken = signToken({
+        userId: user.id,
+        email: user.email,
+        twoFaPending: true,
+      } as any)
+      // メールアドレスを部分マスクして返す（UI表示用）
+      const maskedEmail = user.email.replace(/^(.{1,2})[^@]*(@.*)$/, '$1***$2')
+      return reply.send({ requires2fa: true, tempToken, email: maskedEmail })
     }
 
     const token = signToken({ userId: user.id, email: user.email })
@@ -128,21 +140,41 @@ export async function authRoutes(fastify: FastifyInstance) {
     }
 
     const user = await prisma.users.findUnique({ where: { id: payload.userId } })
-    if (!user || !user.twoFactorSecret) {
+    if (!user || !user.isTwoFactorEnabled) {
       return reply.code(401).send({ message: '2FA が設定されていません' })
     }
 
-    const valid = speakeasy.totp.verify({
-      secret: user.twoFactorSecret,
-      encoding: 'base32',
-      token: code,
-      window: 1,
-    })
-    if (!valid) return reply.code(401).send({ message: 'コードが正しくありません' })
+    const valid = await verifyOtp(user.id, code.trim())
+    if (!valid) return reply.code(401).send({ message: 'コードが正しくないか期限切れです' })
 
     const token = signToken({ userId: user.id, email: user.email })
     const userResponse = await buildUserResponse(user.id)
     return reply.send({ token, user: userResponse })
+  })
+
+  // POST /auth/2fa/resend — ログイン途中で OTP を再送
+  fastify.post('/auth/2fa/resend', async (request, reply) => {
+    const { tempToken } = request.body as { tempToken?: string }
+    if (!tempToken) return reply.code(400).send({ message: 'tempToken は必須です' })
+
+    let payload: any
+    try {
+      const { verifyToken } = await import('../lib/auth.js')
+      payload = verifyToken(tempToken)
+    } catch {
+      return reply.code(401).send({ message: 'トークンが無効または期限切れです' })
+    }
+    if (!payload.twoFaPending) {
+      return reply.code(400).send({ message: '2FA チャレンジが不要なトークンです' })
+    }
+
+    const user = await prisma.users.findUnique({ where: { id: payload.userId } })
+    if (!user || !user.isTwoFactorEnabled) {
+      return reply.code(401).send({ message: '2FA が設定されていません' })
+    }
+
+    await issueOtpAndSend(user.id, user.email, user.nickname)
+    return reply.send({ message: '確認コードを再送しました' })
   })
 
   // POST /auth/logout

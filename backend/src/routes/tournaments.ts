@@ -190,6 +190,42 @@ export async function tournamentRoutes(fastify: FastifyInstance) {
     return reply.code(201).send({ message: '参加しました' })
   })
 
+  // --- DELETE /tournaments/:id/leave — トーナメントから脱退 ---
+  fastify.delete('/tournaments/:id/leave', { preHandler: authenticate }, async (request, reply) => {
+    const userId = (request as any).userId as number
+    const { id } = request.params as { id: string }
+    const tournamentId = parseInt(id, 10)
+    if (isNaN(tournamentId)) return reply.code(400).send({ message: '無効なIDです' })
+
+    const tournament = await prisma.tournaments.findUnique({ where: { id: tournamentId } })
+    if (!tournament) return reply.code(404).send({ message: 'トーナメントが見つかりません' })
+
+    const pendingStatus = await prisma.statuses.findFirst({
+      where: { category: 'tournament', name: 'pending' },
+    })
+    if (!pendingStatus || tournament.statusId !== pendingStatus.id) {
+      return reply.code(400).send({ message: '開始済みのトーナメントからは抜けられません' })
+    }
+
+    const participant = await prisma.tournamentParticipants.findUnique({
+      where: { tournamentId_userId: { tournamentId, userId } },
+    })
+    if (!participant) {
+      return reply.code(404).send({ message: 'このトーナメントに参加していません' })
+    }
+
+    // 作成者が抜ける、もしくは最後の一人 → トーナメントごと削除
+    const remaining = await prisma.tournamentParticipants.count({ where: { tournamentId } })
+    if (tournament.createdBy === userId || remaining <= 1) {
+      await prisma.tournamentParticipants.deleteMany({ where: { tournamentId } })
+      await prisma.tournaments.delete({ where: { id: tournamentId } })
+      return reply.send({ message: 'トーナメントを解散しました', deleted: true })
+    }
+
+    await prisma.tournamentParticipants.delete({ where: { id: participant.id } })
+    return reply.send({ message: 'トーナメントから抜けました', deleted: false })
+  })
+
   // --- POST /tournaments/:id/start — トーナメント開始（ブラケット生成）---
   fastify.post('/tournaments/:id/start', { preHandler: authenticate }, async (request, reply) => {
     const userId = (request as any).userId as number

@@ -6,7 +6,7 @@ interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<{ requires2fa: true; tempToken: string } | undefined>;
+  login: (email: string, password: string) => Promise<{ requires2fa: true; tempToken: string; email: string } | undefined>;
   complete2FALogin: (tempToken: string, code: string) => Promise<void>;
   signup: (data: { nickname: string; email: string; password: string }) => Promise<void>;
   logout: () => void;
@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const res = await api.login(email, password);
     if ('requires2fa' in res) {
-      return { requires2fa: true as const, tempToken: res.tempToken };
+      return { requires2fa: true as const, tempToken: res.tempToken, email: res.email };
     }
     sessionStorage.setItem('auth_token', res.token);
     setUser(res.user);

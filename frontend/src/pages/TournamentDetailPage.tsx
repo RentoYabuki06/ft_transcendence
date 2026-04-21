@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { UserAvatar } from '../components/UserAvatar';
 
@@ -34,6 +34,7 @@ interface TournamentDetail {
 
 export function TournamentDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const tournamentId = id ? parseInt(id, 10) : null;
   const [detail, setDetail] = useState<TournamentDetail | null>(null);
   const [myId, setMyId] = useState<number | null>(null);
@@ -72,6 +73,27 @@ export function TournamentDetailPage() {
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : '参加に失敗しました');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleLeave = async () => {
+    const confirmMsg = isOwner
+      ? 'このトーナメントを解散しますか？全参加者が削除されます。'
+      : 'このトーナメントから抜けますか？';
+    if (!confirm(confirmMsg)) return;
+    setBusy(true);
+    setError('');
+    try {
+      const res = await api.leaveTournament(tournamentId);
+      if (res.deleted) {
+        navigate('/tournaments');
+      } else {
+        load();
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '退出に失敗しました');
     } finally {
       setBusy(false);
     }
@@ -184,7 +206,17 @@ export function TournamentDetailPage() {
             </button>
           )}
           {alreadyJoined && isPending && (
-            <span className="text-xs text-cosmic-cyan/60">参加済み</span>
+            <>
+              <span className="text-xs text-cosmic-cyan/60">参加済み</span>
+              <button
+                onClick={handleLeave}
+                className="cosmic-btn"
+                disabled={busy}
+                style={{ fontSize: '0.75rem', padding: '0.4rem 1rem', borderColor: 'rgba(251,113,133,0.3)', color: '#fb7185' }}
+              >
+                {isOwner ? 'トーナメントを解散' : 'トーナメントから抜ける'}
+              </button>
+            </>
           )}
         </div>
       </div>

@@ -39,13 +39,14 @@ model Users {
   
   email              String       @unique /// メールアドレス（システム内で一意）
   name               String       /// 氏名（実名など）
-  nickname           String       /// 表示名
+  nickname           String       @unique /// 表示名（システム内で一意）
   pictureURL         String?      /// アバター画像のURL
   statusId           Int          /// アカウント状態（Statusesテーブルへの参照）
 
-  // --- Two-factor authentication (2FA) ---
-  twoFactorSecret    String?      /// 2FA用のTOTP秘密鍵（Base32文字列）
+  // --- Two-factor authentication (2FA: email OTP方式) ---
   isTwoFactorEnabled Boolean      @default(false) /// 2FA有効化フラグ
+  twoFactorCode      String?      /// 送信済み6桁コード（ハッシュ値）
+  twoFactorCodeExpiresAt DateTime? /// コード有効期限
   
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @default(now()) @updatedAt
@@ -162,12 +163,15 @@ model PlayerScores {
   updatedAt       DateTime          @default(now()) @updatedAt
 }
 
-/// フレンド関係を管理するテーブル
+/// フレンド関係を管理するテーブル（申請フェーズ付き）
+/// userId が申請者、friendId が相手。1ペアにつき1レコードのみ
 model Friendships {
-  id        Int      @id @default(autoincrement())
-  userId    Int      /// フレンド申請したユーザーID
-  friendId  Int      /// フレンドになったユーザーID
-  createdAt DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  userId     Int      /// 申請者ユーザーID
+  friendId   Int      /// 相手ユーザーID
+  status     String   @default("pending") /// 'pending' | 'accepted'
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
 
   @@unique([userId, friendId])
 }

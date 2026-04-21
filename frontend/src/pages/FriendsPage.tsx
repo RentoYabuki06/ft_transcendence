@@ -11,20 +11,32 @@ interface SearchResult {
   avatarUrl: string | null;
 }
 
+interface FriendRequest {
+  id: number;
+  user: { id: number; nickname: string; avatarUrl: string | null } | null;
+  createdAt: string;
+}
+
 export function FriendsPage() {
   const { isOnline } = usePresence();
   const [friends, setFriends] = useState<Friend[]>([]);
+  const [incoming, setIncoming] = useState<FriendRequest[]>([]);
+  const [outgoing, setOutgoing] = useState<FriendRequest[]>([]);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
 
-  const loadFriends = () => {
+  const loadAll = () => {
     api.getFriends().then(setFriends).catch((e) => setError(e.message));
+    api.getFriendRequests().then((r) => {
+      setIncoming(r.incoming);
+      setOutgoing(r.outgoing);
+    }).catch((e) => setError(e.message));
   };
 
   useEffect(() => {
-    loadFriends();
+    loadAll();
   }, []);
 
   useEffect(() => {
@@ -48,12 +60,34 @@ export function FriendsPage() {
 
   const handleAdd = async (userId: number) => {
     try {
-      await api.addFriend(userId);
+      const res = await api.addFriend(userId);
       setQuery('');
       setResults([]);
-      loadFriends();
+      loadAll();
+      if (res.status === 'pending') {
+        // ちょっとフィードバック
+        setError('');
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : '追加に失敗しました');
+    }
+  };
+
+  const handleAccept = async (userId: number) => {
+    try {
+      await api.acceptFriendRequest(userId);
+      loadAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '承認に失敗しました');
+    }
+  };
+
+  const handleReject = async (userId: number) => {
+    try {
+      await api.removeFriend(userId);
+      loadAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '操作に失敗しました');
     }
   };
 
@@ -61,13 +95,32 @@ export function FriendsPage() {
     if (!confirm('このフレンドを削除しますか？')) return;
     try {
       await api.removeFriend(userId);
-      loadFriends();
+      loadAll();
     } catch (e) {
       setError(e instanceof Error ? e.message : '削除に失敗しました');
     }
   };
 
   const friendIds = new Set(friends.map((f) => f.user.id));
+  const outgoingIds = new Set(outgoing.map((r) => r.user?.id).filter(Boolean) as number[]);
+  const incomingIds = new Set(incoming.map((r) => r.user?.id).filter(Boolean) as number[]);
+
+  const renderStatusButton = (u: SearchResult) => {
+    if (friendIds.has(u.id)) return <span className="text-xs text-star-white/40">フレンド</span>;
+    if (outgoingIds.has(u.id)) return <span className="text-xs text-star-white/40">申請中</span>;
+    if (incomingIds.has(u.id)) {
+      return (
+        <button onClick={() => handleAccept(u.id)} className="cosmic-btn" style={{ fontSize: '0.75rem', padding: '0.4rem 1rem' }}>
+          承認
+        </button>
+      );
+    }
+    return (
+      <button onClick={() => handleAdd(u.id)} className="cosmic-btn" style={{ fontSize: '0.75rem', padding: '0.4rem 1rem' }}>
+        申請
+      </button>
+    );
+  };
 
   return (
     <div className="py-8 max-w-3xl mx-auto animate-slide-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -109,18 +162,78 @@ export function FriendsPage() {
               >
                 <UserAvatar avatarUrl={u.avatarUrl} nickname={u.nickname} size="sm" />
                 <div style={{ flex: 1, color: '#faf5ff', fontSize: '0.9rem' }}>{u.nickname}</div>
-                {friendIds.has(u.id) ? (
-                  <span className="text-xs text-star-white/40">追加済</span>
-                ) : (
-                  <button onClick={() => handleAdd(u.id)} className="cosmic-btn" style={{ fontSize: '0.75rem', padding: '0.4rem 1rem' }}>
-                    追加
-                  </button>
-                )}
+                {renderStatusButton(u)}
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* 受信した申請 */}
+      {incoming.length > 0 && (
+        <div className="cosmic-card" style={{ padding: '1.25rem 1.5rem' }}>
+          <h2 className="font-display text-xs tracking-wider text-cosmic-cyan/60 uppercase mb-3">
+            INCOMING REQUESTS ({incoming.length})
+          </h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {incoming.map((r) => r.user && (
+              <div
+                key={r.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.75rem',
+                  padding: '0.625rem 0.875rem',
+                  borderRadius: '12px',
+                  background: 'rgba(255,255,255,0.02)',
+                  border: '1px solid rgba(255,255,255,0.05)',
+                }}
+              >
+                <UserAvatar avatarUrl={r.user.avatarUrl} nickname={r.user.nickname} size="sm" />
+                <div style={{ flex: 1, color: '#faf5ff', fontSize: '0.9rem' }}>{r.user.nickname}</div>
+                <button onClick={() => handleAccept(r.user!.id)} className="cosmic-btn" style={{ fontSize: '0.7rem', padding: '0.35rem 0.8rem' }}>
+                  承認
+                </button>
+                <button onClick={() => handleReject(r.user!.id)} className="cosmic-btn" style={{ fontSize: '0.7rem', padding: '0.35rem 0.8rem', borderColor: 'rgba(251,113,133,0.3)' }}>
+                  拒否
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 送信済み申請 */}
+      {outgoing.length > 0 && (
+        <div className="cosmic-card" style={{ padding: '1.25rem 1.5rem' }}>
+          <h2 className="font-display text-xs tracking-wider text-cosmic-cyan/60 uppercase mb-3">
+            OUTGOING REQUESTS ({outgoing.length})
+          </h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {outgoing.map((r) => r.user && (
+              <div
+                key={r.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.75rem',
+                  padding: '0.625rem 0.875rem',
+                  borderRadius: '12px',
+                  background: 'rgba(255,255,255,0.02)',
+                  border: '1px solid rgba(255,255,255,0.05)',
+                }}
+              >
+                <UserAvatar avatarUrl={r.user.avatarUrl} nickname={r.user.nickname} size="sm" />
+                <div style={{ flex: 1, color: '#faf5ff', fontSize: '0.9rem' }}>{r.user.nickname}</div>
+                <span className="text-xs text-star-white/40">申請中</span>
+                <button onClick={() => handleReject(r.user!.id)} className="cosmic-btn" style={{ fontSize: '0.7rem', padding: '0.35rem 0.8rem', borderColor: 'rgba(251,113,133,0.3)' }}>
+                  取消
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* フレンド一覧 */}
       <div className="cosmic-card" style={{ padding: '1.25rem 1.5rem' }}>

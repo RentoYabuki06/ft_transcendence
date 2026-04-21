@@ -9,7 +9,9 @@ export function LoginPage() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [tempToken, setTempToken] = useState<string | null>(null);
+  const [otpEmail, setOtpEmail] = useState<string>('');
   const [twoFaCode, setTwoFaCode] = useState('');
+  const [resendMsg, setResendMsg] = useState('');
   const { login, complete2FALogin } = useAuth();
   const navigate = useNavigate();
 
@@ -22,6 +24,7 @@ export function LoginPage() {
       const result = await login(email, password);
       if (result?.requires2fa) {
         setTempToken(result.tempToken);
+        setOtpEmail(result.email);
       } else {
         navigate('/dashboard');
       }
@@ -90,7 +93,8 @@ export function LoginPage() {
               style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}
             >
               <p className="text-sm text-star-white/60 text-center">
-                認証アプリの6桁コードを入力してください
+                {otpEmail || 'メールアドレス'} に確認コードを送信しました。<br />
+                メール記載の6桁コードを入力してください。
               </p>
               <input
                 type="text"
@@ -110,9 +114,28 @@ export function LoginPage() {
               >
                 {isLoading ? '検証中...' : '検証'}
               </button>
+              {resendMsg && (
+                <p className="text-xs text-cosmic-cyan/70 text-center">{resendMsg}</p>
+              )}
               <button
                 type="button"
-                onClick={() => { setTempToken(null); setTwoFaCode(''); setError(''); }}
+                onClick={async () => {
+                  if (!tempToken) return;
+                  setResendMsg('');
+                  try {
+                    await api.login2faResend(tempToken);
+                    setResendMsg('確認コードを再送しました');
+                  } catch (err) {
+                    setResendMsg(err instanceof Error ? err.message : '再送に失敗しました');
+                  }
+                }}
+                className="text-xs text-cosmic-cyan/80 hover:text-cosmic-cyan underline"
+              >
+                コードを再送する
+              </button>
+              <button
+                type="button"
+                onClick={() => { setTempToken(null); setTwoFaCode(''); setError(''); setResendMsg(''); }}
                 className="text-xs text-star-white/40 hover:text-star-white underline"
               >
                 ← メール/パスワードに戻る
