@@ -6,14 +6,19 @@ export async function buildUserResponse(userId: number) {
 
   const status = await prisma.statuses.findUnique({ where: { id: user.statusId } })
 
-  const scores = await prisma.playerScores.findMany({ where: { userId } })
+  // 終了済みの試合のみ集計（pending は isWinner=false のままなので losses に混入する）
+  const finishedStatus = await prisma.statuses.findFirst({
+    where: { category: 'game', name: 'finished' },
+  })
+  const finishedFilter = finishedStatus ? { statusId: finishedStatus.id } : {}
+  const scores = await prisma.playerScores.findMany({ where: { userId, ...finishedFilter } })
   const wins = scores.filter(s => s.isWinner).length
   const losses = scores.filter(s => !s.isWinner).length
 
   const allWins = await prisma.playerScores.groupBy({
     by: ['userId'],
     _count: { id: true },
-    where: { isWinner: true },
+    where: { isWinner: true, ...finishedFilter },
     orderBy: { _count: { id: 'desc' } },
   })
   const rank = allWins.findIndex(r => r.userId === userId) + 1 || allWins.length + 1

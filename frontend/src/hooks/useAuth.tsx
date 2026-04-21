@@ -11,6 +11,7 @@ interface AuthContextType {
   signup: (data: { nickname: string; email: string; password: string }) => Promise<void>;
   logout: () => void;
   updateUser: (user: User) => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -64,6 +65,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(u);
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    const token = sessionStorage.getItem('auth_token');
+    if (!token) return;
+    try {
+      const fresh = await api.getMe();
+      setUser(fresh);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   return (
     <AuthContext.Provider
       value={{
@@ -75,6 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signup,
         logout,
         updateUser,
+        refreshUser,
       }}
     >
       {children}

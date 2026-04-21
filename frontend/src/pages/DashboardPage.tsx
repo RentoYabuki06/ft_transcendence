@@ -36,7 +36,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 }
 
 export function DashboardPage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { isOnline } = usePresence();
   const { unreadFrom } = useChatNotifications();
   const [achievements, setAchievements] = useState<Achievement[]>([]);
@@ -44,6 +44,7 @@ export function DashboardPage() {
 
   useEffect(() => {
     const token = sessionStorage.getItem('auth_token');
+    refreshUser();
     fetch('/api/users/me/achievements', {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
@@ -51,7 +52,7 @@ export function DashboardPage() {
       .then(setAchievements)
       .catch(console.error);
     api.getFriends().then(setFriends).catch(console.error);
-  }, []);
+  }, [refreshUser]);
 
   if (!user) return null;
 

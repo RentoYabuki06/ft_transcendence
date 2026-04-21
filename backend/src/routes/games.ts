@@ -108,7 +108,12 @@ export async function gameRoutes(fastify: FastifyInstance) {
     const pageNum = Math.max(1, parseInt(page, 10))
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)))
 
-    const allScores = await prisma.playerScores.findMany()
+    const finishedStatus = await prisma.statuses.findFirst({
+      where: { category: 'game', name: 'finished' },
+    })
+    const allScores = await prisma.playerScores.findMany({
+      where: finishedStatus ? { statusId: finishedStatus.id } : {},
+    })
 
     const statsMap = new Map<number, { wins: number; losses: number }>()
     for (const score of allScores) {
