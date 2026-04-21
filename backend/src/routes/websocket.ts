@@ -12,6 +12,8 @@ const presenceMap = new Map<number, WebSocket>()
 const matchmakingMap = new Map<number, WebSocket>()
 // gameRooms: gameId -> Map<userId, WebSocket> (ゲームルーム)
 const gameRooms = new Map<number, Map<number, WebSocket>>()
+// gameScores: gameId -> Map<userId, score> (最新スコア、切断時のレコード保存用)
+const gameScores = new Map<number, Map<number, number>>()
 // chatMap: userId -> Set<WebSocket> (チャットリアルタイム配信、複数タブ対応)
 const chatMap = new Map<number, Set<WebSocket>>()
 
@@ -238,9 +240,19 @@ export async function websocketRoutes(fastify: FastifyInstance) {
             }
           }
         } else if (msg.type === 'score_update') {
-          // ホストがスコアを通知 → ゲストに転送
+          // ホストがスコアを通知 → ゲストに転送、切断時のスコア記録用に保存
           const room = gameRooms.get(gameId)
           if (room) {
+            // 送信者(ホスト)視点: myScore = 送信者, opponentScore = 相手
+            let scoreMap = gameScores.get(gameId)
+            if (!scoreMap) {
+              scoreMap = new Map()
+              gameScores.set(gameId, scoreMap)
+            }
+            scoreMap.set(userId, msg.myScore ?? 0)
+            for (const pid of room.keys()) {
+              if (pid !== userId) scoreMap.set(pid, msg.opponentScore ?? 0)
+            }
             for (const [pid, ws] of room.entries()) {
               if (pid !== userId && ws.readyState === ws.OPEN) {
                 ws.send(JSON.stringify({ type: 'score_update', myScore: msg.myScore, opponentScore: msg.opponentScore, from: userId }))
@@ -302,9 +314,11 @@ export async function websocketRoutes(fastify: FastifyInstance) {
       const game = await prisma.games.findUnique({ where: { id: gameId } })
       if (game && finishedStatus && game.statusId !== finishedStatus.id) {
         const winnerId = [...room.keys()][0]
+        // 最新スコアを使用（無ければ 0-0）。勝敗は winnerId で決まる
+        const known = gameScores.get(gameId)
         const scores = new Map<number, number>()
-        scores.set(winnerId, WINNING_SCORE)
-        scores.set(userId, 0)
+        scores.set(winnerId, known?.get(winnerId) ?? 0)
+        scores.set(userId, known?.get(userId) ?? 0)
         await handleGameOver(gameId, winnerId, room, scores)
       } else {
         broadcast(room, { type: 'opponent_disconnected', userId })
@@ -376,6 +390,7 @@ async function handleGameOver(
   }
 
   broadcast(room, { type: 'game_finished', gameId, winnerId })
+  gameScores.delete(gameId)
 }
 
 // --- 実績チェック・解除 ---

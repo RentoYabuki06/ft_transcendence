@@ -20,7 +20,7 @@ const achievements = [
   { key: 'first_win',    name: '初勝利',       description: '初めて試合に勝利した',           icon: '🏆' },
   { key: 'ten_wins',     name: '10勝',         description: '通算10勝を達成した',             icon: '⭐' },
   { key: 'fifty_wins',   name: '50勝',         description: '通算50勝を達成した',             icon: '🌟' },
-  { key: 'social',       name: '友達100人',    description: 'フレンドを1人以上追加した',      icon: '👥' },
+  { key: 'social',       name: '目指せ友達100人', description: 'フレンドを1人以上追加した',      icon: '👥' },
   { key: 'two_fa',       name: 'セキュア',     description: '2FA（二要素認証）を有効にした',  icon: '🔐' },
 ]
 
@@ -38,7 +38,7 @@ async function seed() {
   for (const a of achievements) {
     await prisma.achievements.upsert({
       where: { key: a.key },
-      update: {},
+      update: { name: a.name, description: a.description, icon: a.icon },
       create: a,
     })
   }

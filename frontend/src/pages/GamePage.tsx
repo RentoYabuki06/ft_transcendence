@@ -115,6 +115,12 @@ export function GamePage() {
           state.ball.y = msg.y;
           state.ball.vx = -msg.vx;
           state.ball.vy = msg.vy;
+          // ホストがサーブを打った → サーブ表示を解除
+          if (state.serving && (msg.vx !== 0 || msg.vy !== 0)) {
+            state.serving = false;
+            state.serverIsMe = false;
+            setServingState({ serving: false, serverIsMe: false });
+          }
         }
       } else if (msg.type === 'serve_ready') {
         // Guest: mirror server's ball placement
@@ -317,8 +323,17 @@ export function GamePage() {
         lastPaddleY = state.myPaddle.y;
       }
 
-      if (!isHostRef.current) return;
       if (state.serving) return;
+
+      // ゲスト側: ball_update 間のローカル補間のみ行う（衝突判定・スコアはホスト専任）
+      if (!isHostRef.current) {
+        state.ball.x += state.ball.vx;
+        state.ball.y += state.ball.vy;
+        if (state.ball.y <= 0 || state.ball.y >= CANVAS_HEIGHT - BALL_SIZE) {
+          state.ball.vy *= -1;
+        }
+        return;
+      }
 
       state.ball.x += state.ball.vx;
       state.ball.y += state.ball.vy;
@@ -430,7 +445,7 @@ export function GamePage() {
   }, [connStatus, user?.id]);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center relative" style={{ background: 'var(--color-space-deep)' }}>
+    <div className="flex flex-col items-center justify-center relative w-full" style={{ background: 'var(--color-space-deep)', minHeight: 'calc(100vh - 10rem)' }}>
       {connStatus === 'connecting' || connStatus === 'waiting' ? (
         <div className="text-center">
           <div className="font-display text-xl text-cosmic-cyan text-glow-cyan animate-pulse mb-4">
@@ -498,8 +513,10 @@ export function GamePage() {
               } : {
                 border: '1px solid rgba(0, 212, 255, 0.15)',
                 boxShadow: '0 0 40px rgba(0, 212, 255, 0.05), inset 0 0 40px rgba(0, 0, 0, 0.5)',
-                maxWidth: '100%',
+                width: '100%',
+                maxWidth: 'min(100%, calc((100vh - 18rem) * 1.6))',
                 height: 'auto',
+                aspectRatio: '8 / 5',
               }}
             />
 
