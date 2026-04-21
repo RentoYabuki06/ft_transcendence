@@ -27,4 +27,4 @@ RUN mkdir -p /app/data /app/uploads
 EXPOSE 3000
 
 # マイグレーション → シード → サーバー起動
-CMD sh -c "npx prisma migrate deploy && npm run seed && npm run dev"
+CMD sh -c "npx prisma generate && npx prisma migrate deploy && npm run seed && npm run dev"
