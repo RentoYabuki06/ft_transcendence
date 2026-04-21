@@ -150,6 +150,11 @@ export const api = {
     );
   },
 
+  getGame: (id: number) =>
+    request<{ id: number; players: Array<{ userId: number; user: { id: number; nickname: string; avatarUrl: string | null } | null }> }>(
+      `/games/${id}`
+    ),
+
   getRanking: (params?: { page?: number; limit?: number }) => {
     const query = new URLSearchParams();
     if (params?.page) query.set('page', String(params.page));
@@ -161,7 +166,10 @@ export const api = {
 
   // Matchmaking
   joinMatchmaking: () =>
-    request<{ waitingRoomId: number }>('/matchmaking/join', { method: 'POST' }),
+    request<{ waitingRoomId: number; matched?: boolean; gameId?: number }>(
+      '/matchmaking/join',
+      { method: 'POST' }
+    ),
 
   cancelMatchmaking: () =>
     request<void>('/matchmaking/cancel', { method: 'POST' }),

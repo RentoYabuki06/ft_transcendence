@@ -18,8 +18,25 @@ export function MatchingPage() {
   useEffect(() => {
     const token = sessionStorage.getItem('auth_token');
     if (!token) return;
+    cancelledRef.current = false;
 
-    api.joinMatchmaking().catch(console.error);
+    api.joinMatchmaking()
+      .then(async (res) => {
+        if (res.matched && res.gameId) {
+          // 既にマッチ済み: 相手情報を取得して遷移
+          try {
+            const game = await api.getGame(res.gameId);
+            const opp = game.players.find((p: any) => p.userId !== user?.id)?.user;
+            if (opp) setOpponent({ id: opp.id, nickname: opp.nickname, avatarUrl: opp.avatarUrl });
+            setGameId(res.gameId);
+            setStatus('matched');
+          } catch {
+            setGameId(res.gameId);
+            setStatus('matched');
+          }
+        }
+      })
+      .catch(console.error);
 
     let retryTimer: number | null = null;
 

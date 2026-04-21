@@ -23,12 +23,21 @@ export async function matchmakingRoutes(fastify: FastifyInstance) {
       return reply.code(500).send({ message: 'ステータスマスターが初期化されていません' })
     }
 
-    // 既に待機中か確認
+    // 既に待機中か確認: 自分1人だけで待機中なら部屋ごと破棄して再マッチング
     const alreadyWaiting = await prisma.waitingRoomParticipants.findFirst({
       where: { userId },
     })
     if (alreadyWaiting) {
-      return reply.send({ waitingRoomId: alreadyWaiting.waitingRoomId })
+      const roomPeers = await prisma.waitingRoomParticipants.findMany({
+        where: { waitingRoomId: alreadyWaiting.waitingRoomId },
+      })
+      if (roomPeers.length === 1) {
+        // 自室のみ → 破棄して下の検索に進む
+        await prisma.waitingRoomParticipants.deleteMany({ where: { waitingRoomId: alreadyWaiting.waitingRoomId } })
+        await prisma.waitingRooms.deleteMany({ where: { id: alreadyWaiting.waitingRoomId } })
+      } else {
+        return reply.send({ waitingRoomId: alreadyWaiting.waitingRoomId })
+      }
     }
 
     // ブロック関係にあるユーザーを除外
@@ -62,10 +71,17 @@ export async function matchmakingRoutes(fastify: FastifyInstance) {
       })
 
       if (participants.length === 1) {
-        // マッチング成立
-        await prisma.waitingRoomParticipants.create({
-          data: { waitingRoomId: existingRoom.id, userId, statusId: waitingStatus.id },
-        })
+        // マッチング成立（並列 POST による race を吸収）
+        try {
+          await prisma.waitingRoomParticipants.create({
+            data: { waitingRoomId: existingRoom.id, userId, statusId: waitingStatus.id },
+          })
+        } catch (e: any) {
+          if (e?.code === 'P2002') {
+            return reply.send({ waitingRoomId: existingRoom.id })
+          }
+          throw e
+        }
         await prisma.waitingRooms.update({
           where: { id: existingRoom.id },
           data: { statusId: matchedStatus.id },

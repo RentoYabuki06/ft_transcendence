@@ -120,6 +120,36 @@ export async function websocketRoutes(fastify: FastifyInstance) {
     matchmakingMap.set(userId, socket)
     socket.send(JSON.stringify({ type: 'waiting', message: '対戦相手を探しています...' }))
 
+    // 接続時点で既にマッチ済みなら matched を再送（通知取りこぼし対策）
+    ;(async () => {
+      const matchedStatus = await prisma.statuses.findFirst({
+        where: { category: 'waitroom', name: 'matched' },
+      })
+      if (!matchedStatus) return
+      const myParticipation = await prisma.waitingRoomParticipants.findFirst({
+        where: { userId },
+      })
+      if (!myParticipation) return
+      const room = await prisma.waitingRooms.findUnique({ where: { id: myParticipation.waitingRoomId } })
+      if (!room || room.statusId !== matchedStatus.id) return
+      const peers = await prisma.waitingRoomParticipants.findMany({ where: { waitingRoomId: room.id } })
+      const opponentId = peers.find(p => p.userId !== userId)?.userId
+      if (!opponentId) return
+      const pendingGameStatus = await prisma.statuses.findFirst({ where: { category: 'game', name: 'pending' } })
+      if (!pendingGameStatus) return
+      const score = await prisma.playerScores.findFirst({
+        where: { userId, statusId: pendingGameStatus.id },
+        orderBy: { id: 'desc' },
+      })
+      if (!score) return
+      const opp = await prisma.users.findUnique({ where: { id: opponentId } })
+      socket.send(JSON.stringify({
+        type: 'matched',
+        gameId: score.gameId,
+        opponent: opp ? { id: opp.id, nickname: opp.nickname, avatarUrl: opp.pictureURL } : null,
+      }))
+    })().catch(() => {})
+
     socket.on('close', () => {
       matchmakingMap.delete(userId)
     })
