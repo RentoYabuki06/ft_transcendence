@@ -25,7 +25,7 @@ export function PlayPage() {
   ];
 
   return (
-    <div className="py-8 max-w-4xl mx-auto animate-slide-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+    <div className="py-8 px-4 w-full max-w-4xl mx-auto animate-slide-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem', boxSizing: 'border-box', minHeight: 'calc(100vh - 10rem)', justifyContent: 'center' }}>
       <div style={{ textAlign: 'center' }}>
         <h1
           className="font-display font-black"
@@ -46,8 +46,8 @@ export function PlayPage() {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: '1.5rem',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))',
+          gap: '1.25rem',
         }}
       >
         {modes.map((m) => (

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { UserAvatar } from '../components/UserAvatar';
+import { useChatNotifications } from '../hooks/useChatNotifications';
 
 interface Conversation {
   partnerId: number;
@@ -32,6 +33,7 @@ export function ChatPage() {
   const [myId, setMyId] = useState<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const { clearUnread, refresh: refreshUnread } = useChatNotifications();
 
   // 自分のIDを取得
   useEffect(() => {
@@ -53,6 +55,8 @@ export function ChatPage() {
     setMessages([]);
     api.getMessages(partnerId).then((msgs) => {
       setMessages(msgs);
+      clearUnread(partnerId);
+      refreshUnread();
     }).catch((e) => setError(e.message));
 
     // 相手の情報取得

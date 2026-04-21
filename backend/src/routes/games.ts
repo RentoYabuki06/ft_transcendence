@@ -129,7 +129,7 @@ export async function gameRoutes(fastify: FastifyInstance) {
           avatarUrl: user.pictureURL,
           wins: stats.wins,
           losses: stats.losses,
-          winRate: total > 0 ? Math.round((stats.wins / total) * 100) / 100 : 0,
+          winRate: total > 0 ? Math.round((stats.wins / total) * 100) : 0,
           level: Math.floor(stats.wins / 5) + 1,
         }
       })

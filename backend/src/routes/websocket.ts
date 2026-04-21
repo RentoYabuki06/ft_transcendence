@@ -3,6 +3,8 @@ import { WebSocket } from '@fastify/websocket'
 import { verifyToken } from '../lib/auth.js'
 import prisma from '../lib/prisma.js'
 
+const WINNING_SCORE = 11
+
 // --- 接続管理 ---
 // presenceMap: userId -> WebSocket (オンライン状態)
 const presenceMap = new Map<number, WebSocket>()
@@ -10,8 +12,8 @@ const presenceMap = new Map<number, WebSocket>()
 const matchmakingMap = new Map<number, WebSocket>()
 // gameRooms: gameId -> Map<userId, WebSocket> (ゲームルーム)
 const gameRooms = new Map<number, Map<number, WebSocket>>()
-// chatMap: userId -> WebSocket (チャットリアルタイム配信)
-const chatMap = new Map<number, WebSocket>()
+// chatMap: userId -> Set<WebSocket> (チャットリアルタイム配信、複数タブ対応)
+const chatMap = new Map<number, Set<WebSocket>>()
 
 // --- ヘルパー ---
 function broadcast(map: Map<number, WebSocket>, data: unknown) {
@@ -54,7 +56,12 @@ export function deliverChatMessage(
   receiverId: number,
   payload: { id: number; senderId: number; receiverId: number; body: string; createdAt: string },
 ) {
-  sendToUser(chatMap, receiverId, { type: 'chat_message', ...payload })
+  const sockets = chatMap.get(receiverId)
+  if (!sockets) return
+  const msg = JSON.stringify({ type: 'chat_message', ...payload })
+  for (const ws of sockets) {
+    if (ws.readyState === ws.OPEN) ws.send(msg)
+  }
 }
 
 export async function websocketRoutes(fastify: FastifyInstance) {
@@ -69,9 +76,16 @@ export async function websocketRoutes(fastify: FastifyInstance) {
       socket.close()
       return
     }
-    chatMap.set(userId, socket)
-    socket.on('close', () => chatMap.delete(userId))
-    socket.on('error', () => chatMap.delete(userId))
+    if (!chatMap.has(userId)) chatMap.set(userId, new Set())
+    chatMap.get(userId)!.add(socket)
+    const removeSocket = () => {
+      const set = chatMap.get(userId)
+      if (!set) return
+      set.delete(socket)
+      if (set.size === 0) chatMap.delete(userId)
+    }
+    socket.on('close', removeSocket)
+    socket.on('error', removeSocket)
   })
 
   // ----------------------------------------------------------------
@@ -142,6 +156,9 @@ export async function websocketRoutes(fastify: FastifyInstance) {
         orderBy: { id: 'desc' },
       })
       if (!score) return
+      // 試合がまだ pending 状態であることを確認（終了済みなら送らない）
+      const pendingGame = await prisma.games.findUnique({ where: { id: score.gameId } })
+      if (!pendingGame || pendingGame.statusId !== pendingGameStatus.id) return
       const opp = await prisma.users.findUnique({ where: { id: opponentId } })
       socket.send(JSON.stringify({
         type: 'matched',
@@ -230,6 +247,15 @@ export async function websocketRoutes(fastify: FastifyInstance) {
               }
             }
           }
+        } else if (msg.type === 'serve_ready' || msg.type === 'serve_launch') {
+          const room = gameRooms.get(gameId)
+          if (room) {
+            for (const [pid, ws] of room.entries()) {
+              if (pid !== userId && ws.readyState === ws.OPEN) {
+                ws.send(JSON.stringify({ ...msg, from: userId }))
+              }
+            }
+          }
         } else if (msg.type === 'ball_update') {
           // ボール位置をゲストに転送（ホストのみ送信）
           const room = gameRooms.get(gameId)
@@ -261,14 +287,27 @@ export async function websocketRoutes(fastify: FastifyInstance) {
       }
     })
 
-    socket.on('close', () => {
+    socket.on('close', async () => {
       const room = gameRooms.get(gameId)
-      if (room) {
-        room.delete(userId)
-        if (room.size === 0) gameRooms.delete(gameId)
-        else {
-          broadcast(room, { type: 'opponent_disconnected', userId })
-        }
+      if (!room) return
+      room.delete(userId)
+      if (room.size === 0) {
+        gameRooms.delete(gameId)
+        return
+      }
+      // ゲームがまだ進行中なら切断者を負けとして試合終了
+      const finishedStatus = await prisma.statuses.findFirst({
+        where: { category: 'game', name: 'finished' },
+      })
+      const game = await prisma.games.findUnique({ where: { id: gameId } })
+      if (game && finishedStatus && game.statusId !== finishedStatus.id) {
+        const winnerId = [...room.keys()][0]
+        const scores = new Map<number, number>()
+        scores.set(winnerId, WINNING_SCORE)
+        scores.set(userId, 0)
+        await handleGameOver(gameId, winnerId, room, scores)
+      } else {
+        broadcast(room, { type: 'opponent_disconnected', userId })
       }
     })
 
@@ -303,15 +342,31 @@ async function handleGameOver(
     data: { statusId: finishedStatus.id, winnerId },
   })
 
-  // PlayerScores の isWinner とスコアを更新
+  // PlayerScores の isWinner とスコアを更新（statusId も finished に）
   const scores = await prisma.playerScores.findMany({ where: { gameId } })
   for (const s of scores) {
     await prisma.playerScores.update({
       where: { id: s.id },
       data: {
         isWinner: s.userId === winnerId,
+        statusId: finishedStatus.id,
         ...(scoresByUser?.has(s.userId) ? { score: scoresByUser.get(s.userId)! } : {}),
       },
+    })
+  }
+
+  // 試合に関連する待機部屋レコードをクリーンアップ（再マッチ時の干渉防止）
+  const participantUserIds = scores.map(s => s.userId)
+  const stalePairs = await prisma.waitingRoomParticipants.findMany({
+    where: { userId: { in: participantUserIds } },
+  })
+  const staleRoomIds = [...new Set(stalePairs.map(p => p.waitingRoomId))]
+  if (staleRoomIds.length > 0) {
+    await prisma.waitingRoomParticipants.deleteMany({
+      where: { waitingRoomId: { in: staleRoomIds } },
+    })
+    await prisma.waitingRooms.deleteMany({
+      where: { id: { in: staleRoomIds } },
     })
   }
 

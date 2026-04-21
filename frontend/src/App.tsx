@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { PresenceProvider } from './hooks/usePresence';
+import { ChatNotificationsProvider } from './hooks/useChatNotifications';
 import { Layout } from './components/Layout';
 import { LandingPage } from './pages/LandingPage';
 import { LoginPage } from './pages/LoginPage';
@@ -48,8 +49,8 @@ function AppRoutes() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
-      <Route path="/terms" element={<TermsPage />} />
-      <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/terms" element={<Layout><TermsPage /></Layout>} />
+      <Route path="/privacy" element={<Layout><PrivacyPage /></Layout>} />
 
       {/* Protected routes with Layout */}
       <Route
@@ -96,7 +97,7 @@ function AppRoutes() {
         path="/game/:id"
         element={
           <ProtectedRoute>
-            <GamePage />
+            <Layout><GamePage /></Layout>
           </ProtectedRoute>
         }
       />
@@ -168,7 +169,9 @@ export default function App() {
   return (
     <AuthProvider>
       <PresenceProvider>
-        <AppRoutes />
+        <ChatNotificationsProvider>
+          <AppRoutes />
+        </ChatNotificationsProvider>
       </PresenceProvider>
     </AuthProvider>
   );

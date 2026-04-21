@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { usePresence } from '../hooks/usePresence';
+import { useChatNotifications } from '../hooks/useChatNotifications';
 import { UserAvatar } from '../components/UserAvatar';
 import { api } from '../services/api';
 import type { Achievement, Friend } from '../types';
@@ -37,6 +38,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 export function DashboardPage() {
   const { user } = useAuth();
   const { isOnline } = usePresence();
+  const { unreadFrom } = useChatNotifications();
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [friends, setFriends] = useState<Friend[]>([]);
 
@@ -257,41 +259,16 @@ export function DashboardPage() {
           className="cosmic-card"
           style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column' }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-            <SectionHeading>FRIENDS</SectionHeading>
-            <Link
-              to="/friends"
-              style={{
-                fontSize: '0.7rem',
-                color: 'rgba(110,231,255,0.7)',
-                textDecoration: 'none',
-                padding: '0.2rem 0.6rem',
-                borderRadius: '999px',
-                border: '1px solid rgba(110,231,255,0.25)',
-                transition: 'all 0.18s ease',
-                letterSpacing: '0.05em',
-              }}
-              onMouseEnter={(e) => {
-                const el = e.currentTarget as HTMLElement;
-                el.style.background = 'rgba(255,79,216,0.12)';
-                el.style.borderColor = 'rgba(255,79,216,0.4)';
-                el.style.color = '#ff4fd8';
-              }}
-              onMouseLeave={(e) => {
-                const el = e.currentTarget as HTMLElement;
-                el.style.background = 'transparent';
-                el.style.borderColor = 'rgba(110,231,255,0.25)';
-                el.style.color = 'rgba(110,231,255,0.7)';
-              }}
-            >
-              All →
-            </Link>
-          </div>
+          <Link to="/friends" style={{ textDecoration: 'none', display: 'block' }}>
+            <SectionHeading>FRIENDS →</SectionHeading>
+          </Link>
           <div style={{ maxHeight: '260px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-            {friends.map((f) => (
+            {friends.map((f) => {
+              const unread = unreadFrom(f.user.id);
+              return (
               <Link
                 key={f.id}
-                to={`/user/${f.user.id}`}
+                to={unread > 0 ? `/chat/${f.user.id}` : `/user/${f.user.id}`}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -326,8 +303,31 @@ export function DashboardPage() {
                     {f.user.nickname}
                   </div>
                 </div>
+                {unread > 0 && (
+                  <span
+                    style={{
+                      flexShrink: 0,
+                      minWidth: '1.4rem',
+                      height: '1.4rem',
+                      padding: '0 0.45rem',
+                      borderRadius: '999px',
+                      background: 'linear-gradient(135deg, #ff4fd8, #b84dff)',
+                      color: '#fff',
+                      fontSize: '0.7rem',
+                      fontWeight: 700,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: '0 0 10px rgba(255,79,216,0.6)',
+                    }}
+                    title={`${unread}件の未読メッセージ`}
+                  >
+                    💬 {unread}
+                  </span>
+                )}
               </Link>
-            ))}
+              );
+            })}
             {friends.length === 0 && (
               <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.25)', fontSize: '0.85rem', paddingTop: '1.5rem' }}>フレンドがいません</p>
             )}

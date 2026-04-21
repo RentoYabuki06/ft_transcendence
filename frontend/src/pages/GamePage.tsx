@@ -10,7 +10,8 @@ const BALL_SIZE = 10;
 const PADDLE_SPEED = 6;
 const BALL_SPEED_INIT = 4;
 const WINNING_SCORE = 11;
-const BALL_SEND_INTERVAL = 50; // ms
+const BALL_SEND_INTERVAL = 50;
+const SERVE_OFFSET_X = 60;
 
 interface GameState {
   ball: { x: number; y: number; vx: number; vy: number };
@@ -19,6 +20,8 @@ interface GameState {
   myScore: number;
   opponentScore: number;
   running: boolean;
+  serving: boolean;
+  serverIsMe: boolean;
 }
 
 type ConnectionStatus = 'connecting' | 'waiting' | 'countdown' | 'playing' | 'finished' | 'error';
@@ -33,32 +36,49 @@ export function GamePage() {
   const wsRef = useRef<WebSocket | null>(null);
   const isHostRef = useRef(false);
   const lastBallSendRef = useRef(0);
+  // Host-only: tracks which user is currently serving
+  const serverIdRef = useRef<number | null>(null);
+  const playersRef = useRef<number[]>([]);
+  const gameEndedRef = useRef(false);
 
   const [connStatus, setConnStatus] = useState<ConnectionStatus>('connecting');
   const [scores, setScores] = useState({ my: 0, opp: 0 });
   const [winner, setWinner] = useState<'me' | 'opponent' | null>(null);
   const [countdown, setCountdown] = useState<number>(0);
   const [disconnectReason, setDisconnectReason] = useState<'opponent_left' | 'network' | null>(null);
+  const [servingState, setServingState] = useState<{ serving: boolean; serverIsMe: boolean }>({ serving: false, serverIsMe: false });
+  const [portrait, setPortrait] = useState(() =>
+    typeof window !== 'undefined' && window.innerHeight > window.innerWidth,
+  );
+
+  useEffect(() => {
+    const handler = () => setPortrait(window.innerHeight > window.innerWidth);
+    window.addEventListener('resize', handler);
+    window.addEventListener('orientationchange', handler);
+    return () => {
+      window.removeEventListener('resize', handler);
+      window.removeEventListener('orientationchange', handler);
+    };
+  }, []);
 
   const initGame = useCallback((): GameState => ({
-    ball: {
-      x: CANVAS_WIDTH / 2,
-      y: CANVAS_HEIGHT / 2,
-      vx: BALL_SPEED_INIT * (Math.random() > 0.5 ? 1 : -1),
-      vy: (Math.random() - 0.5) * BALL_SPEED_INIT,
-    },
+    ball: { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2, vx: 0, vy: 0 },
     myPaddle: { y: CANVAS_HEIGHT / 2 - PADDLE_HEIGHT / 2 },
     opponentPaddle: { y: CANVAS_HEIGHT / 2 - PADDLE_HEIGHT / 2 },
     myScore: 0,
     opponentScore: 0,
     running: false,
+    serving: false,
+    serverIsMe: false,
   }), []);
 
-  const resetBall = (state: GameState) => {
-    state.ball.x = CANVAS_WIDTH / 2;
+  // Place ball on server's side, stopped. Host-local coordinates.
+  const placeBallForServe = (state: GameState, serverIsHost: boolean) => {
+    state.ball.x = serverIsHost ? SERVE_OFFSET_X + PADDLE_WIDTH + BALL_SIZE : CANVAS_WIDTH - SERVE_OFFSET_X - PADDLE_WIDTH - BALL_SIZE;
     state.ball.y = CANVAS_HEIGHT / 2;
-    state.ball.vx = BALL_SPEED_INIT * (state.ball.vx > 0 ? -1 : 1);
-    state.ball.vy = (Math.random() - 0.5) * BALL_SPEED_INIT;
+    state.ball.vx = 0;
+    state.ball.vy = 0;
+    state.serving = true;
   };
 
   useEffect(() => {
@@ -74,41 +94,63 @@ export function GamePage() {
 
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
+      const state = gameRef.current;
 
       if (msg.type === 'connected') {
         setConnStatus('waiting');
       } else if (msg.type === 'game_start') {
-        // 最初に接続したプレイヤーがホスト（ボール物理担当）
         isHostRef.current = msg.players[0] === user.id;
+        playersRef.current = msg.players;
+        if (isHostRef.current) {
+          // Host decides initial server
+          serverIdRef.current = msg.players[Math.floor(Math.random() * 2)];
+        }
         setConnStatus('countdown');
         setCountdown(3);
       } else if (msg.type === 'opponent_paddle') {
-        if (gameRef.current) gameRef.current.opponentPaddle.y = msg.paddleY;
+        if (state) state.opponentPaddle.y = msg.paddleY;
       } else if (msg.type === 'ball_update' && !isHostRef.current) {
-        // ゲストはホストのボール位置を受け取る
-        if (gameRef.current) {
-          gameRef.current.ball.x = CANVAS_WIDTH - msg.x; // ミラーリング
-          gameRef.current.ball.y = msg.y;
-          gameRef.current.ball.vx = -msg.vx;
-          gameRef.current.ball.vy = msg.vy;
+        if (state) {
+          state.ball.x = CANVAS_WIDTH - msg.x;
+          state.ball.y = msg.y;
+          state.ball.vx = -msg.vx;
+          state.ball.vy = msg.vy;
+        }
+      } else if (msg.type === 'serve_ready') {
+        // Guest: mirror server's ball placement
+        if (state && !isHostRef.current) {
+          const myTurn = msg.serverId === user.id;
+          state.ball.x = CANVAS_WIDTH - msg.ballX;
+          state.ball.y = msg.ballY;
+          state.ball.vx = 0;
+          state.ball.vy = 0;
+          state.serving = true;
+          state.serverIsMe = myTurn;
+          setServingState({ serving: true, serverIsMe: myTurn });
+        }
+      } else if (msg.type === 'serve_launch' && isHostRef.current) {
+        // Host receives: guest (server) launched
+        if (state && serverIdRef.current !== user.id) {
+          launchBall(state, false);
+          setServingState({ serving: false, serverIsMe: false });
         }
       } else if (msg.type === 'score_update') {
-        // ゲストはホストから転送されたスコアを表示（左右反転）
         if (!isHostRef.current) {
           const my = msg.opponentScore ?? 0;
           const opp = msg.myScore ?? 0;
-          if (gameRef.current) {
-            gameRef.current.myScore = my;
-            gameRef.current.opponentScore = opp;
+          if (state) {
+            state.myScore = my;
+            state.opponentScore = opp;
           }
           setScores({ my, opp });
         }
       } else if (msg.type === 'game_finished') {
-        if (gameRef.current) gameRef.current.running = false;
+        gameEndedRef.current = true;
+        if (state) state.running = false;
         setWinner(msg.winnerId === user.id ? 'me' : 'opponent');
         setConnStatus('finished');
       } else if (msg.type === 'opponent_disconnected') {
-        if (gameRef.current) gameRef.current.running = false;
+        if (state) state.running = false;
         setDisconnectReason('opponent_left');
         setConnStatus('error');
       }
@@ -132,17 +174,51 @@ export function GamePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId, user?.id]);
 
-  // カウントダウン
+  // Launch ball from serving position. serverIsHost: true if host is server (ball goes right).
+  const launchBall = (state: GameState, serverIsHost: boolean) => {
+    state.ball.vx = BALL_SPEED_INIT * (serverIsHost ? 1 : -1);
+    state.ball.vy = (Math.random() - 0.5) * BALL_SPEED_INIT;
+    state.serving = false;
+  };
+
+  // Reload warning during active game
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (connStatus === 'playing' || connStatus === 'countdown') {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [connStatus]);
+
+  // Countdown → start first serve
   useEffect(() => {
     if (connStatus !== 'countdown') return;
     if (countdown <= 0) {
-      if (gameRef.current) gameRef.current.running = true;
       setConnStatus('playing');
+      const state = gameRef.current;
+      const ws = wsRef.current;
+      if (state && isHostRef.current && ws && ws.readyState === WebSocket.OPEN) {
+        const serverId = serverIdRef.current!;
+        const serverIsHost = serverId === user?.id;
+        placeBallForServe(state, serverIsHost);
+        state.serverIsMe = serverIsHost;
+        setServingState({ serving: true, serverIsMe: serverIsHost });
+        ws.send(JSON.stringify({
+          type: 'serve_ready',
+          serverId,
+          ballX: state.ball.x,
+          ballY: state.ball.y,
+        }));
+      }
+      if (state) state.running = true;
       return;
     }
     const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(t);
-  }, [connStatus, countdown]);
+  }, [connStatus, countdown, user?.id]);
 
   useEffect(() => {
     if (connStatus !== 'playing') return;
@@ -154,12 +230,71 @@ export function GamePage() {
 
     let animId: number;
 
-    const handleKeyDown = (e: KeyboardEvent) => keysRef.current.add(e.key);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      keysRef.current.add(e.key);
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        const state = gameRef.current;
+        const ws = wsRef.current;
+        if (!state || !state.serving || !ws) return;
+        if (!state.serverIsMe) return;
+        if (isHostRef.current) {
+          launchBall(state, true);
+          setServingState({ serving: false, serverIsMe: false });
+        } else if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'serve_launch' }));
+          // Optimistic: stop showing serve prompt; host will drive ball via ball_update
+          state.serving = false;
+          setServingState({ serving: false, serverIsMe: false });
+        }
+      }
+    };
     const handleKeyUp = (e: KeyboardEvent) => keysRef.current.delete(e.key);
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
 
     let lastPaddleY = -1;
+
+    function handleScore(state: GameState, hostScored: boolean) {
+      const ws = wsRef.current;
+      if (!ws) return;
+      if (hostScored) state.myScore++;
+      else state.opponentScore++;
+      setScores({ my: state.myScore, opp: state.opponentScore });
+      ws.send(JSON.stringify({ type: 'score_update', myScore: state.myScore, opponentScore: state.opponentScore }));
+
+      const hostWon = state.myScore >= WINNING_SCORE;
+      const guestWon = state.opponentScore >= WINNING_SCORE;
+      if (hostWon || guestWon) {
+        state.running = false;
+        state.serving = false;
+        gameEndedRef.current = true;
+        const winnerId = hostWon ? user?.id : playersRef.current.find((p) => p !== user?.id);
+        ws.send(JSON.stringify({
+          type: 'game_over',
+          winnerId,
+          myScore: state.myScore,
+          opponentScore: state.opponentScore,
+        }));
+        return;
+      }
+
+      // Alternate serve: whoever was scored against serves next
+      const loserId = hostScored
+        ? playersRef.current.find((p) => p !== user?.id)
+        : user?.id;
+      serverIdRef.current = loserId ?? serverIdRef.current;
+      const serverIsHost = serverIdRef.current === user?.id;
+      placeBallForServe(state, serverIsHost);
+      state.serverIsMe = serverIsHost;
+      setServingState({ serving: true, serverIsMe: serverIsHost });
+      ws.send(JSON.stringify({
+        type: 'serve_ready',
+        serverId: serverIdRef.current,
+        ballX: state.ball.x,
+        ballY: state.ball.y,
+      }));
+    }
 
     function update() {
       const state = gameRef.current;
@@ -168,32 +303,30 @@ export function GamePage() {
 
       const keys = keysRef.current;
 
-      // My paddle movement
-      if (keys.has('w') || keys.has('W') || keys.has('ArrowUp')) {
+      const up = keys.has('w') || keys.has('W') || keys.has('ArrowUp') || keys.has('ArrowLeft') || keys.has('a') || keys.has('A');
+      const down = keys.has('s') || keys.has('S') || keys.has('ArrowDown') || keys.has('ArrowRight') || keys.has('d') || keys.has('D');
+      if (up) {
         state.myPaddle.y = Math.max(0, state.myPaddle.y - PADDLE_SPEED);
       }
-      if (keys.has('s') || keys.has('S') || keys.has('ArrowDown')) {
+      if (down) {
         state.myPaddle.y = Math.min(CANVAS_HEIGHT - PADDLE_HEIGHT, state.myPaddle.y + PADDLE_SPEED);
       }
 
-      // Send paddle position if changed
       if (state.myPaddle.y !== lastPaddleY && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'paddle_move', paddleY: state.myPaddle.y }));
         lastPaddleY = state.myPaddle.y;
       }
 
-      if (!isHostRef.current) return; // ゲストはボール物理を動かさない
+      if (!isHostRef.current) return;
+      if (state.serving) return;
 
-      // Ball movement (host only)
       state.ball.x += state.ball.vx;
       state.ball.y += state.ball.vy;
 
-      // Top/bottom bounce
       if (state.ball.y <= 0 || state.ball.y >= CANVAS_HEIGHT - BALL_SIZE) {
         state.ball.vy *= -1;
       }
 
-      // My paddle (left) collision
       if (
         state.ball.x <= PADDLE_WIDTH + 20 &&
         state.ball.y + BALL_SIZE >= state.myPaddle.y &&
@@ -204,7 +337,6 @@ export function GamePage() {
         state.ball.vy = ((state.ball.y - state.myPaddle.y) / PADDLE_HEIGHT - 0.5) * BALL_SPEED_INIT * 2;
       }
 
-      // Opponent paddle (right) collision
       if (
         state.ball.x >= CANVAS_WIDTH - PADDLE_WIDTH - 20 - BALL_SIZE &&
         state.ball.y + BALL_SIZE >= state.opponentPaddle.y &&
@@ -215,44 +347,14 @@ export function GamePage() {
         state.ball.vy = ((state.ball.y - state.opponentPaddle.y) / PADDLE_HEIGHT - 0.5) * BALL_SPEED_INIT * 2;
       }
 
-      // Scoring
       if (state.ball.x < 0) {
-        state.opponentScore++;
-        setScores({ my: state.myScore, opp: state.opponentScore });
-        ws.send(JSON.stringify({ type: 'score_update', myScore: state.myScore, opponentScore: state.opponentScore }));
-        if (state.opponentScore >= WINNING_SCORE) {
-          state.running = false;
-          ws.send(JSON.stringify({
-            type: 'game_over',
-            winnerId: null,
-            scores: { [user!.id]: state.myScore, opponent: state.opponentScore },
-            myScore: state.myScore,
-            opponentScore: state.opponentScore,
-          }));
-        } else {
-          resetBall(state);
-        }
+        handleScore(state, false);
       } else if (state.ball.x > CANVAS_WIDTH) {
-        state.myScore++;
-        setScores({ my: state.myScore, opp: state.opponentScore });
-        ws.send(JSON.stringify({ type: 'score_update', myScore: state.myScore, opponentScore: state.opponentScore }));
-        if (state.myScore >= WINNING_SCORE) {
-          state.running = false;
-          ws.send(JSON.stringify({
-            type: 'game_over',
-            winnerId: user?.id,
-            scores: { [user!.id]: state.myScore, opponent: state.opponentScore },
-            myScore: state.myScore,
-            opponentScore: state.opponentScore,
-          }));
-        } else {
-          resetBall(state);
-        }
+        handleScore(state, true);
       }
 
-      // Send ball state to guest
       const now = Date.now();
-      if (now - lastBallSendRef.current >= BALL_SEND_INTERVAL && ws.readyState === WebSocket.OPEN) {
+      if (now - lastBallSendRef.current >= BALL_SEND_INTERVAL && ws.readyState === WebSocket.OPEN && !state.serving) {
         ws.send(JSON.stringify({
           type: 'ball_update',
           x: state.ball.x,
@@ -271,7 +373,6 @@ export function GamePage() {
       ctx!.fillStyle = '#050a18';
       ctx!.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-      // Center dashed line
       ctx!.setLineDash([8, 8]);
       ctx!.strokeStyle = 'rgba(0, 212, 255, 0.15)';
       ctx!.lineWidth = 2;
@@ -281,19 +382,16 @@ export function GamePage() {
       ctx!.stroke();
       ctx!.setLineDash([]);
 
-      // My paddle (left = cyan)
       ctx!.shadowColor = '#00d4ff';
       ctx!.shadowBlur = 15;
       ctx!.fillStyle = '#00d4ff';
       ctx!.fillRect(20, state.myPaddle.y, PADDLE_WIDTH, PADDLE_HEIGHT);
 
-      // Opponent paddle (right = purple)
       ctx!.shadowColor = '#8b5cf6';
       ctx!.shadowBlur = 15;
       ctx!.fillStyle = '#8b5cf6';
       ctx!.fillRect(CANVAS_WIDTH - 20 - PADDLE_WIDTH, state.opponentPaddle.y, PADDLE_WIDTH, PADDLE_HEIGHT);
 
-      // Ball
       ctx!.shadowColor = '#ffffff';
       ctx!.shadowBlur = 20;
       ctx!.fillStyle = '#ffffff';
@@ -333,7 +431,6 @@ export function GamePage() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center relative" style={{ background: 'var(--color-space-deep)' }}>
-      {/* Waiting overlay */}
       {connStatus === 'connecting' || connStatus === 'waiting' ? (
         <div className="text-center">
           <div className="font-display text-xl text-cosmic-cyan text-glow-cyan animate-pulse mb-4">
@@ -343,7 +440,6 @@ export function GamePage() {
         </div>
       ) : null}
 
-      {/* Error overlay */}
       {connStatus === 'error' && (
         <div className="text-center">
           <div className="font-display text-xl text-cosmic-red mb-4">
@@ -362,7 +458,6 @@ export function GamePage() {
         </div>
       )}
 
-      {/* Game */}
       {(connStatus === 'countdown' || connStatus === 'playing' || connStatus === 'finished') && (
         <>
           <div className="flex items-center gap-12 mb-6">
@@ -377,15 +472,34 @@ export function GamePage() {
             </div>
           </div>
 
-          <div className="relative">
+          <div
+            className="relative"
+            style={portrait ? {
+              width: 'min(calc(100vh - 14rem), calc(100vw - 2rem) * 1.6)',
+              aspectRatio: '5 / 8',
+              maxWidth: '500px',
+            } : undefined}
+          >
             <canvas
               ref={canvasRef}
               width={CANVAS_WIDTH}
               height={CANVAS_HEIGHT}
               className="rounded-xl"
-              style={{
+              style={portrait ? {
                 border: '1px solid rgba(0, 212, 255, 0.15)',
                 boxShadow: '0 0 40px rgba(0, 212, 255, 0.05), inset 0 0 40px rgba(0, 0, 0, 0.5)',
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                width: 'calc(100% * 8 / 5)',
+                height: 'calc(100% * 5 / 8)',
+                transform: 'translate(-50%, -50%) rotate(-90deg)',
+                transformOrigin: 'center center',
+              } : {
+                border: '1px solid rgba(0, 212, 255, 0.15)',
+                boxShadow: '0 0 40px rgba(0, 212, 255, 0.05), inset 0 0 40px rgba(0, 0, 0, 0.5)',
+                maxWidth: '100%',
+                height: 'auto',
               }}
             />
 
@@ -404,6 +518,27 @@ export function GamePage() {
                   key={countdown}
                 >
                   {countdown > 0 ? countdown : 'GO!'}
+                </div>
+              </div>
+            )}
+
+            {connStatus === 'playing' && servingState.serving && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div
+                  className="font-display"
+                  style={{
+                    fontSize: '1.25rem',
+                    color: servingState.serverIsMe ? '#00d4ff' : '#8b5cf6',
+                    textShadow: `0 0 20px ${servingState.serverIsMe ? '#00d4ff' : '#8b5cf6'}`,
+                    background: 'rgba(5,10,24,0.7)',
+                    padding: '0.75rem 1.25rem',
+                    borderRadius: '12px',
+                    letterSpacing: '0.1em',
+                  }}
+                >
+                  {servingState.serverIsMe
+                    ? 'SPACE を押してサーブ'
+                    : '相手のサーブを待っています...'}
                 </div>
               </div>
             )}
@@ -440,13 +575,15 @@ export function GamePage() {
             )}
           </div>
 
-          <div className="flex items-center gap-4 mt-6 text-xs text-star-white/20">
+          <div className="flex items-center gap-4 mt-6 text-xs text-star-white/20 flex-wrap justify-center">
             <span className="text-cosmic-cyan/40">操作:</span>
             <kbd className="px-1.5 py-0.5 rounded border border-cosmic-cyan/20 bg-cosmic-cyan/5 text-cosmic-cyan/40 font-mono">W</kbd>
             <kbd className="px-1.5 py-0.5 rounded border border-cosmic-cyan/20 bg-cosmic-cyan/5 text-cosmic-cyan/40 font-mono">S</kbd>
             <span className="text-star-white/10">or</span>
             <kbd className="px-1.5 py-0.5 rounded border border-cosmic-cyan/20 bg-cosmic-cyan/5 text-cosmic-cyan/40 font-mono">↑</kbd>
             <kbd className="px-1.5 py-0.5 rounded border border-cosmic-cyan/20 bg-cosmic-cyan/5 text-cosmic-cyan/40 font-mono">↓</kbd>
+            <span className="text-star-white/10">/ サーブ</span>
+            <kbd className="px-1.5 py-0.5 rounded border border-cosmic-cyan/20 bg-cosmic-cyan/5 text-cosmic-cyan/40 font-mono">SPACE</kbd>
           </div>
         </>
       )}

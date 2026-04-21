@@ -28,15 +28,24 @@ export async function matchmakingRoutes(fastify: FastifyInstance) {
       where: { userId },
     })
     if (alreadyWaiting) {
-      const roomPeers = await prisma.waitingRoomParticipants.findMany({
-        where: { waitingRoomId: alreadyWaiting.waitingRoomId },
+      const room = await prisma.waitingRooms.findUnique({
+        where: { id: alreadyWaiting.waitingRoomId },
       })
-      if (roomPeers.length === 1) {
-        // 自室のみ → 破棄して下の検索に進む
-        await prisma.waitingRoomParticipants.deleteMany({ where: { waitingRoomId: alreadyWaiting.waitingRoomId } })
-        await prisma.waitingRooms.deleteMany({ where: { id: alreadyWaiting.waitingRoomId } })
+      if (room?.statusId === matchedStatus.id) {
+        // 既にマッチ済みの古い部屋に残っている → 参加レコードを削除して新規マッチへ
+        await prisma.waitingRoomParticipants.deleteMany({
+          where: { userId, waitingRoomId: alreadyWaiting.waitingRoomId },
+        })
       } else {
-        return reply.send({ waitingRoomId: alreadyWaiting.waitingRoomId })
+        const roomPeers = await prisma.waitingRoomParticipants.findMany({
+          where: { waitingRoomId: alreadyWaiting.waitingRoomId },
+        })
+        if (roomPeers.length === 1) {
+          await prisma.waitingRoomParticipants.deleteMany({ where: { waitingRoomId: alreadyWaiting.waitingRoomId } })
+          await prisma.waitingRooms.deleteMany({ where: { id: alreadyWaiting.waitingRoomId } })
+        } else {
+          return reply.send({ waitingRoomId: alreadyWaiting.waitingRoomId })
+        }
       }
     }
 
