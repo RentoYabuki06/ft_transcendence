@@ -10,7 +10,8 @@ const BALL_SIZE = 10;
 const PADDLE_SPEED = 6;
 const BALL_SPEED_INIT = 4;
 const WINNING_SCORE = 11;
-const BALL_SEND_INTERVAL = 50;
+const BALL_SEND_INTERVAL = 33;
+const PADDLE_SEND_INTERVAL = 33;
 const SERVE_OFFSET_X = 60;
 
 interface GameState {
@@ -36,6 +37,7 @@ export function GamePage() {
   const wsRef = useRef<WebSocket | null>(null);
   const isHostRef = useRef(false);
   const lastBallSendRef = useRef(0);
+  const lastPaddleSendRef = useRef(0);
   // Host-only: tracks which user is currently serving
   const serverIdRef = useRef<number | null>(null);
   const playersRef = useRef<number[]>([]);
@@ -334,28 +336,36 @@ export function GamePage() {
 
     let animId: number;
 
+    const tryServe = () => {
+      const state = gameRef.current;
+      const ws = wsRef.current;
+      if (!state || !state.serving || !ws) return;
+      if (!state.serverIsMe) return;
+      if (isHostRef.current) {
+        launchBall(state, true);
+        setServingState({ serving: false, serverIsMe: false });
+      } else if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'serve_launch' }));
+        // Optimistic: stop showing serve prompt; host will drive ball via ball_update
+        state.serving = false;
+        setServingState({ serving: false, serverIsMe: false });
+      }
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
       keysRef.current.add(e.key);
       if (e.key === ' ' || e.code === 'Space') {
         e.preventDefault();
-        const state = gameRef.current;
-        const ws = wsRef.current;
-        if (!state || !state.serving || !ws) return;
-        if (!state.serverIsMe) return;
-        if (isHostRef.current) {
-          launchBall(state, true);
-          setServingState({ serving: false, serverIsMe: false });
-        } else if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'serve_launch' }));
-          // Optimistic: stop showing serve prompt; host will drive ball via ball_update
-          state.serving = false;
-          setServingState({ serving: false, serverIsMe: false });
-        }
+        tryServe();
       }
     };
     const handleKeyUp = (e: KeyboardEvent) => keysRef.current.delete(e.key);
+    const handleCanvasClick = () => tryServe();
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    const canvasEl = canvasRef.current;
+    canvasEl?.addEventListener('click', handleCanvasClick);
+    canvasEl?.addEventListener('touchstart', handleCanvasClick);
 
     let lastPaddleY = -1;
 
@@ -416,9 +426,15 @@ export function GamePage() {
         state.myPaddle.y = Math.min(CANVAS_HEIGHT - PADDLE_HEIGHT, state.myPaddle.y + PADDLE_SPEED);
       }
 
-      if (state.myPaddle.y !== lastPaddleY && ws.readyState === WebSocket.OPEN) {
+      const nowMs = performance.now();
+      if (
+        state.myPaddle.y !== lastPaddleY &&
+        ws.readyState === WebSocket.OPEN &&
+        nowMs - lastPaddleSendRef.current >= PADDLE_SEND_INTERVAL
+      ) {
         ws.send(JSON.stringify({ type: 'paddle_move', paddleY: state.myPaddle.y }));
         lastPaddleY = state.myPaddle.y;
+        lastPaddleSendRef.current = nowMs;
       }
 
       if (state.serving) return;
@@ -526,35 +542,19 @@ export function GamePage() {
       ctx!.stroke();
       ctx!.setLineDash([]);
 
-      ctx!.shadowColor = '#00d4ff';
-      ctx!.shadowBlur = 15;
+      // パドル: shadowBlur は軽め。毎フレームの負荷を下げる
       ctx!.fillStyle = '#00d4ff';
       ctx!.fillRect(20, state.myPaddle.y, PADDLE_WIDTH, PADDLE_HEIGHT);
-
-      ctx!.shadowColor = '#8b5cf6';
-      ctx!.shadowBlur = 15;
       ctx!.fillStyle = '#8b5cf6';
       ctx!.fillRect(CANVAS_WIDTH - 20 - PADDLE_WIDTH, state.opponentPaddle.y, PADDLE_WIDTH, PADDLE_HEIGHT);
 
-      ctx!.shadowColor = '#ffffff';
-      ctx!.shadowBlur = 20;
+      // ボール: 最小限のshadowBlurのみ（グラデ廃止）
+      ctx!.shadowColor = '#00d4ff';
+      ctx!.shadowBlur = 8;
       ctx!.fillStyle = '#ffffff';
       ctx!.beginPath();
       ctx!.arc(state.ball.x, state.ball.y, BALL_SIZE, 0, Math.PI * 2);
       ctx!.fill();
-
-      ctx!.shadowBlur = 0;
-      const gradient = ctx!.createRadialGradient(
-        state.ball.x, state.ball.y, 0,
-        state.ball.x, state.ball.y, BALL_SIZE * 4,
-      );
-      gradient.addColorStop(0, 'rgba(0, 212, 255, 0.2)');
-      gradient.addColorStop(1, 'rgba(0, 212, 255, 0)');
-      ctx!.fillStyle = gradient;
-      ctx!.beginPath();
-      ctx!.arc(state.ball.x, state.ball.y, BALL_SIZE * 4, 0, Math.PI * 2);
-      ctx!.fill();
-
       ctx!.shadowBlur = 0;
     }
 
@@ -570,6 +570,8 @@ export function GamePage() {
       cancelAnimationFrame(animId);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      canvasEl?.removeEventListener('click', handleCanvasClick);
+      canvasEl?.removeEventListener('touchstart', handleCanvasClick);
     };
   }, [connStatus, user?.id]);
 
@@ -696,7 +698,7 @@ export function GamePage() {
             )}
 
             {connStatus === 'playing' && servingState.serving && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="absolute inset-0 flex items-center justify-center" style={{ pointerEvents: 'none' }}>
                 <div
                   className="font-display"
                   style={{
@@ -710,7 +712,7 @@ export function GamePage() {
                   }}
                 >
                   {servingState.serverIsMe
-                    ? 'SPACE を押してサーブ'
+                    ? 'SPACE / クリックでサーブ'
                     : '相手のサーブを待っています...'}
                 </div>
               </div>
