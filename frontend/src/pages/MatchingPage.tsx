@@ -23,6 +23,13 @@ export function MatchingPage() {
     api.joinMatchmaking()
       .then(async (res) => {
         if (res.matched && res.gameId) {
+          // 進行中の試合が残っていた場合は即時復帰
+          if (res.reconnect) {
+            cancelledRef.current = true;
+            wsRef.current?.close();
+            navigate(`/game/${res.gameId}`, { replace: true });
+            return;
+          }
           // 既にマッチ済み: 相手情報を取得して遷移
           try {
             const game = await api.getGame(res.gameId);

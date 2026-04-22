@@ -36,7 +36,7 @@ interface GameInstance {
 
 const gameInstances = new Map<number, GameInstance>()
 
-const PLAYER_GRACE_MS = 15_000 // 片方切断の猶予
+const PLAYER_GRACE_MS = 60_000 // 片方切断の猶予（ホーム→再マッチで戻るフローに備えて長めに設定）
 const ROOM_DROP_MS = 60_000    // 両者切断の猶予
 // chatMap: userId -> Set<WebSocket> (チャットリアルタイム配信、複数タブ対応)
 const chatMap = new Map<number, Set<WebSocket>>()
@@ -263,8 +263,11 @@ export async function websocketRoutes(fastify: FastifyInstance) {
     const side: Side = userId === inst.leftId ? 'left' : 'right'
 
     // 既存ソケットを置き換え（再接続）
+    // 再接続判定は「ゲームが進行中(=phase !== 'waiting')」で行う。
+    // 切断時に inst.sockets から userId を削除しているため、
+    // previousSocket の有無だけでは再接続を検知できない。
     const previousSocket = inst.sockets.get(userId)
-    const isReconnect = !!previousSocket && inst.state.phase !== 'waiting'
+    const isReconnect = inst.state.phase !== 'waiting'
     if (previousSocket && previousSocket !== socket && previousSocket.readyState === previousSocket.OPEN) {
       try { previousSocket.close() } catch { /* ignore */ }
     }
@@ -356,6 +359,10 @@ export async function websocketRoutes(fastify: FastifyInstance) {
 
       if (inst.sockets.size === 0) {
         // 両者切断 → ROOM_DROP_MS の猶予
+        // 先に設定されていた片方向の graceTimer は、
+        // 両者切断では ROOM_DROP_MS 側を優先するため解除する。
+        for (const t of inst.playerGraceTimers.values()) clearTimeout(t)
+        inst.playerGraceTimers.clear()
         broadcastInstance(inst, {
           type: 'opponent_disconnected',
           userId,

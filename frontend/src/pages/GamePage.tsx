@@ -133,9 +133,20 @@ export function GamePage() {
 
         if (msg.type === 'connected') {
           sideRef.current = (msg.yourSide as Side) ?? null;
-          setConnStatus((prev) =>
-            prev === 'reconnecting' ? 'playing' : 'waiting',
-          );
+          const isReconnect = msg.reconnect === true;
+          // 古い snapshot を破棄（performance.now() の基準がずれるため）
+          if (isReconnect) snapshotsRef.current = [];
+          setConnStatus((prev) => {
+            if (isReconnect) return 'playing';
+            return prev === 'reconnecting' ? 'playing' : 'waiting';
+          });
+          if (isReconnect) {
+            if (pauseTimerRef.current !== null) {
+              window.clearInterval(pauseTimerRef.current);
+              pauseTimerRef.current = null;
+            }
+            setPauseSeconds(null);
+          }
           return;
         }
 

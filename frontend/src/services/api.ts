@@ -181,7 +181,7 @@ export const api = {
 
   // Matchmaking
   joinMatchmaking: () =>
-    request<{ waitingRoomId: number; matched?: boolean; gameId?: number }>(
+    request<{ waitingRoomId?: number; matched?: boolean; gameId?: number; reconnect?: boolean }>(
       '/matchmaking/join',
       { method: 'POST' }
     ),
