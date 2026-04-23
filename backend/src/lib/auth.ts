@@ -1,6 +1,15 @@
 import jwt from 'jsonwebtoken'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'changeme-in-production'
+function loadJwtSecret(): string {
+  const s = process.env.JWT_SECRET
+  if (!s || s.length < 32) {
+    throw new Error(
+      'JWT_SECRET 環境変数が未設定または短すぎます (最低32文字)。.env を設定してください。'
+    )
+  }
+  return s
+}
+const JWT_SECRET: string = loadJwtSecret()
 const JWT_EXPIRES_IN = '7d'
 
 export interface JwtPayload {
