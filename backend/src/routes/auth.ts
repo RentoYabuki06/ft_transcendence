@@ -185,7 +185,7 @@ export async function authRoutes(fastify: FastifyInstance) {
   // GET /auth/42 — 42 OAuth 開始
   fastify.get('/auth/42', async (_request, reply) => {
     const clientId = process.env.INTRA42_CLIENT_ID
-    const redirectUri = process.env.INTRA42_REDIRECT_URI || 'http://localhost:3000/auth/42/callback'
+    const redirectUri = process.env.INTRA42_REDIRECT_URI || 'https://localhost:8443/api/auth/42/callback'
     if (!clientId) {
       return reply.code(503).send({ message: '42 OAuth が設定されていません' })
     }
@@ -198,7 +198,7 @@ export async function authRoutes(fastify: FastifyInstance) {
   fastify.get('/auth/42/callback', async (request, reply) => {
     const { code } = request.query as { code?: string }
     if (!code) {
-      return reply.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=oauth_failed`)
+      return reply.redirect(`${process.env.FRONTEND_URL || 'https://localhost:8443'}/login?error=oauth_failed`)
     }
 
     try {
@@ -251,11 +251,11 @@ export async function authRoutes(fastify: FastifyInstance) {
       }
 
       const token = signToken({ userId: user.id, email: user.email })
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173'
+      const frontendUrl = process.env.FRONTEND_URL || 'https://localhost:8443'
       return reply.redirect(`${frontendUrl}/dashboard?token=${token}`)
     } catch (err) {
       fastify.log.error(err)
-      return reply.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=oauth_failed`)
+      return reply.redirect(`${process.env.FRONTEND_URL || 'https://localhost:8443'}/login?error=oauth_failed`)
     }
   })
 }
