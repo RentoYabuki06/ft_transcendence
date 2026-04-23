@@ -262,9 +262,11 @@ export async function tournamentRoutes(fastify: FastifyInstance) {
       where: { tournamentId },
     })
 
-    const minParticipants = 4
-    if (participants.length < minParticipants) {
-      return reply.code(400).send({ message: `最低${minParticipants}人必要です（現在${participants.length}人）` })
+    // 欠員によるブラケット破綻を防ぐため、定員が埋まるまで開始不可にする
+    if (participants.length !== tournament.maxParticipants) {
+      return reply.code(400).send({
+        message: `開始するには定員${tournament.maxParticipants}人が必要です（現在${participants.length}人）`,
+      })
     }
 
     // シャッフルしてブラケット生成
