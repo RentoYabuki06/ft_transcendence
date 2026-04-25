@@ -1,4 +1,4 @@
-*This project has been created as part of the 42 curriculum by ryabuki, nisi, maiyokono, pchung.*
+*This project has been created as part of the 42 curriculum by ryabuki, timanish, myokono, pchung.*
 
 ---
 
@@ -101,8 +101,8 @@ node e2e-2fa.mjs          # 2FA setup + challenge login
 | Login | Name | Role(s) |
 |---|---|---|
 | ryabuki | Rento Yabuki | Technical Lead + Developer |
-| nisi | — | Project Manager + Developer |
-| maiyokono | Mai Yokono | Product Owner + Developer |
+| timanish | — | Project Manager + Developer |
+| myokono | Mai Yokono | Product Owner + Developer |
 | pchung | —  | Developer |
 
 ### Responsibilities
@@ -110,10 +110,10 @@ node e2e-2fa.mjs          # 2FA setup + challenge login
 **ryabuki — Technical Lead + Developer**
 Defined the overall technical architecture (service topology, WebSocket protocol, server-authoritative game engine). Responsible for backend core: game engine (`gameEngine.ts`), WebSocket routing, authentication (JWT + 2FA + 42 OAuth), matchmaking, and Docker/nginx setup. Led code reviews on critical backend changes.
 
-**nisi — Project Manager + Developer**
+**timanish — Project Manager + Developer**
 Facilitated team meetings and tracked sprint progress. Implemented frontend pages: dashboard, ranking, match history, user profile, and friends. Ensured cross-browser compatibility and responsive layout.
 
-**maiyokono — Product Owner + Developer**
+**myokono — Product Owner + Developer**
 Maintained the product backlog and feature priorities. Implemented tournament system (backend routes and frontend bracket UI), achievement system, and GDPR data export/deletion.
 
 **pchung — Developer**
@@ -224,24 +224,24 @@ Achievements    — master (id, key, name, description, icon)
 | 42 OAuth login | OAuth 2.0 via 42 Intranet; merges into existing account if email matches | ryabuki |
 | Two-Factor Authentication | Email OTP (6 digits, bcrypt-hashed, 10-min TTL); optional per user | ryabuki, pchung |
 | Profile editing | Nickname, email, password, avatar upload (JPEG/PNG/GIF/WebP, max 5 MB) | pchung |
-| User profile page | Displays stats, avatar, match history for any user | nisi |
+| User profile page | Displays stats, avatar, match history for any user | timanish |
 | Online presence | WebSocket heartbeat; friends see online/offline in real time | ryabuki |
-| Friend system | Send/accept/cancel/remove requests; see friends list with online status | nisi |
+| Friend system | Send/accept/cancel/remove requests; see friends list with online status | timanish |
 | Block feature | Block/unblock users; blocks prevent messaging and matchmaking | pchung |
 | Direct messaging (DM) | Real-time 1-to-1 chat over WebSocket; history persisted in DB | pchung |
 | Matchmaking queue | Auto-pairs waiting players; excludes blocked opponents | ryabuki |
 | Pong game (2D) | Server-authoritative, 60 Hz physics, 30 Hz snapshot broadcast, first to 11 | ryabuki |
 | Game reconnection | Rejoin an in-progress game within a grace window after disconnect | ryabuki |
-| Tournament system | Create 4/8-player brackets; auto-advance rounds; registration flow | maiyokono |
-| Match history | Paginated list of past games with opponent, score, result, date | nisi |
-| Leaderboard (ranking) | Global ranking by wins; shows win rate and level | nisi |
-| Achievement system | Unlock achievements on milestones; displayed on dashboard | maiyokono |
-| Level system | Player level = wins / 5 + 1; shown on profile and ranking | nisi, maiyokono |
-| GDPR data export | `GET /api/users/me/export` — downloads full user data as JSON | maiyokono |
-| GDPR account deletion | `DELETE /api/users/me` — anonymises personal data, retains game records | maiyokono |
+| Tournament system | Create 4/8-player brackets; auto-advance rounds; registration flow | myokono |
+| Match history | Paginated list of past games with opponent, score, result, date | timanish |
+| Leaderboard (ranking) | Global ranking by wins; shows win rate and level | timanish |
+| Achievement system | Unlock achievements on milestones; displayed on dashboard | myokono |
+| Level system | Player level = wins / 5 + 1; shown on profile and ranking | timanish, myokono |
+| GDPR data export | `GET /api/users/me/export` — downloads full user data as JSON | myokono |
+| GDPR account deletion | `DELETE /api/users/me` — anonymises personal data, retains game records | myokono |
 | Privacy Policy | Static page accessible from footer | pchung |
 | Terms of Service | Static page accessible from footer | pchung |
-| Responsive layout | Works on desktop, tablet, and mobile (keyboard + touch controls) | nisi |
+| Responsive layout | Works on desktop, tablet, and mobile (keyboard + touch controls) | timanish |
 | Docker deployment | Single `docker compose up` starts nginx + frontend + backend | ryabuki |
 
 ---
@@ -254,10 +254,10 @@ Achievements    — master (id, key, name, description, icon)
 
 | Module | Category | Implementation | Team member(s) |
 |---|---|---|---|
-| Use frameworks for both frontend and backend | Web | React 19 (frontend) + Fastify 5 (backend) | ryabuki, nisi |
+| Use frameworks for both frontend and backend | Web | React 19 (frontend) + Fastify 5 (backend) | ryabuki, timanish |
 | Real-time features using WebSockets | Web | Four WebSocket endpoints: `/ws/presence`, `/ws/matchmaking`, `/ws/game/:id`, `/ws/chat`; graceful disconnect handling; efficient broadcasting | ryabuki |
-| Allow users to interact with other users | Web | DM chat (send/receive), profile pages (view any user), friend system (add/remove/accept) | pchung, nisi |
-| Standard user management and authentication | User Management | Profile update, avatar upload with default fallback, friends with online status, dedicated profile page | ryabuki, pchung, nisi |
+| Allow users to interact with other users | Web | DM chat (send/receive), profile pages (view any user), friend system (add/remove/accept) | pchung, timanish |
+| Standard user management and authentication | User Management | Profile update, avatar upload with default fallback, friends with online status, dedicated profile page | ryabuki, pchung, timanish |
 | Implement a complete web-based game | Gaming | 2D Pong: server-authoritative 60 Hz engine, swept collision detection, serve mechanic, first to 11 wins, 2D canvas rendering | ryabuki |
 | Remote players | Gaming | Two players on separate machines; latency-tolerant snapshot protocol; reconnection within grace window | ryabuki |
 
@@ -268,12 +268,12 @@ Achievements    — master (id, key, name, description, icon)
 | Module | Category | Implementation | Team member(s) |
 |---|---|---|---|
 | Use an ORM for the database | Web | Prisma 5 with SQLite; typed queries, migration management | ryabuki |
-| Game statistics and match history | User Management | Win/loss counts, win rate, level, paginated match history table, leaderboard | nisi, maiyokono |
+| Game statistics and match history | User Management | Win/loss counts, win rate, level, paginated match history table, leaderboard | timanish, myokono |
 | Remote authentication (OAuth 2.0) | User Management | 42 Intranet OAuth; JWT issued on callback; links to existing account by email | ryabuki |
 | Two-Factor Authentication (2FA) | User Management | Email OTP: 6-digit code, bcrypt-hashed, 10-min TTL; per-user opt-in | ryabuki, pchung |
-| Tournament system | Gaming | 4 or 8-player single-elimination brackets; auto-advance on game completion; registration/alias system | maiyokono |
-| Gamification system | Gaming | Achievements (DB-persistent, unlock on milestone), leaderboard, XP/level system (wins/5+1) — 3 features implemented with visual feedback on dashboard | maiyokono, nisi |
-| GDPR compliance features | Data & Analytics | Data export (JSON download of all personal data); anonymised account deletion (email/nickname replaced, credentials purged, game records retained for leaderboard integrity) | maiyokono |
+| Tournament system | Gaming | 4 or 8-player single-elimination brackets; auto-advance on game completion; registration/alias system | myokono |
+| Gamification system | Gaming | Achievements (DB-persistent, unlock on milestone), leaderboard, XP/level system (wins/5+1) — 3 features implemented with visual feedback on dashboard | myokono, timanish |
+| GDPR compliance features | Data & Analytics | Data export (JSON download of all personal data); anonymised account deletion (email/nickname replaced, credentials purged, game records retained for leaderboard integrity) | myokono |
 
 **Minor subtotal: 7 pts**
 
@@ -291,14 +291,14 @@ Achievements    — master (id, key, name, description, icon)
 - Wrote all five E2E test scripts (`.mjs`).
 - **Key challenge:** Eliminating paddle tunnelling and snapshot drift in the server-authoritative model. Solved with swept collision detection and position correction at each physics tick.
 
-### nisi — Project Manager + Developer
+### timanish — Project Manager + Developer
 - Built frontend pages: Dashboard, Ranking (leaderboard), Match History, User Profile view, and Friends page.
 - Implemented presence indicators and friend online-status display across the UI.
 - Ensured responsive design across all pages (Tailwind CSS breakpoints, mobile touch controls for game).
 - Managed sprint planning, GitHub Issues triage, and PR review coordination.
 - **Key challenge:** Keeping friend presence state in sync with backend WebSocket events without introducing stale reads; solved with a reactive `usePresence` hook and periodic reconciliation.
 
-### maiyokono (Mai Yokono) — Product Owner + Developer
+### myokono (Mai Yokono) — Product Owner + Developer
 - Built the complete tournament system: backend routes (`tournaments.ts`, 16 KB), frontend bracket UI (TournamentListPage, TournamentDetailPage), and automatic round advancement logic.
 - Implemented the achievement system (backend route + seed data) and the gamification display on the Dashboard.
 - Implemented GDPR features: full JSON data export endpoint and transactional anonymised account deletion.
@@ -350,7 +350,7 @@ All AI-generated content was reviewed and is fully understood by the team member
 
 ---
 
-*このプロジェクトは、ryabuki, nisi, maiyokono, pchung によって 42 カリキュラムの一環として作成されました。*
+*このプロジェクトは、ryabuki, timanish, myokono, pchung によって 42 カリキュラムの一環として作成されました。*
 
 ---
 
@@ -453,8 +453,8 @@ node e2e-2fa.mjs          # 2FA セットアップ + チャレンジログイン
 | ログイン | 氏名 | 役割 |
 |---|---|---|
 | ryabuki | Rento Yabuki | テクニカルリード + 開発者 |
-| nisi | — | プロジェクトマネージャー + 開発者 |
-| maiyokono | Mai Yokono | プロダクトオーナー + 開発者 |
+| timanish | — | プロジェクトマネージャー + 開発者 |
+| myokono | Mai Yokono | プロダクトオーナー + 開発者 |
 | pchung | —  | 開発者 |
 
 ### 担当内容
@@ -462,10 +462,10 @@ node e2e-2fa.mjs          # 2FA セットアップ + チャレンジログイン
 **ryabuki — テクニカルリード + 開発者**
 全体技術アーキテクチャ（サービス構成・WebSocket プロトコル・サーバー権威型ゲームエンジン）を設計。バックエンドコア（ゲームエンジン・WebSocket ルーティング・認証（JWT + 2FA + 42 OAuth）・マッチメイキング・Docker/nginx 構成）を担当。重要なバックエンド変更のコードレビューをリード。
 
-**nisi — プロジェクトマネージャー + 開発者**
+**timanish — プロジェクトマネージャー + 開発者**
 チームミーティングのファシリテーションとスプリント進捗管理。フロントエンドページ（ダッシュボード・ランキング・マッチ履歴・ユーザープロフィール・フレンド）を実装。クロスブラウザ対応とレスポンシブレイアウトを確保。
 
-**maiyokono — プロダクトオーナー + 開発者**
+**myokono — プロダクトオーナー + 開発者**
 プロダクトバックログと機能優先度の管理。トーナメントシステム（バックエンドルートとフロントエンドブラケット UI）・実績システム・GDPR データエクスポート/削除を実装。
 
 **pchung — 開発者**
@@ -576,24 +576,24 @@ Achievements    — マスター（id, key, name, description, icon）
 | 42 OAuth ログイン | 42 Intranet 経由 OAuth 2.0；メールが一致する場合は既存アカウントにリンク | ryabuki |
 | 二段階認証（2FA） | メール OTP（6 桁、bcrypt ハッシュ、10 分 TTL）；ユーザー任意で有効化 | ryabuki, pchung |
 | プロフィール編集 | ニックネーム・メール・パスワード・アバターアップロード（JPEG/PNG/GIF/WebP、最大 5 MB） | pchung |
-| ユーザープロフィールページ | 任意ユーザーの統計・アバター・マッチ履歴を表示 | nisi |
+| ユーザープロフィールページ | 任意ユーザーの統計・アバター・マッチ履歴を表示 | timanish |
 | オンラインプレゼンス | WebSocket ハートビート；フレンドがリアルタイムでオンライン/オフラインを確認可能 | ryabuki |
-| フレンドシステム | 申請送信/承認/キャンセル/削除；オンライン状態付きフレンドリスト | nisi |
+| フレンドシステム | 申請送信/承認/キャンセル/削除；オンライン状態付きフレンドリスト | timanish |
 | ブロック機能 | ユーザーをブロック/解除；メッセージングとマッチメイキングを遮断 | pchung |
 | ダイレクトメッセージ（DM） | WebSocket 経由 1 対 1 リアルタイムチャット；履歴を DB に永続化 | pchung |
 | マッチメイキングキュー | 待機中のプレイヤーを自動ペアリング；ブロック済み相手を除外 | ryabuki |
 | Pong ゲーム（2D） | サーバー権威型、60 Hz 物理演算、30 Hz スナップショット配信、先取 11 点 | ryabuki |
 | ゲーム再接続 | 切断後のグレース期間内に進行中ゲームへ復帰可能 | ryabuki |
-| トーナメントシステム | 4/8 人ブラケット作成；ゲーム完了時に自動次ラウンド進行；登録フロー | maiyokono |
-| マッチ履歴 | 過去のゲームをページネーション付きで一覧表示（相手・スコア・結果・日付） | nisi |
-| リーダーボード（ランキング） | 勝利数によるグローバルランキング；勝率とレベルを表示 | nisi |
-| 実績システム | マイルストーンで実績をアンロック；ダッシュボードに表示 | maiyokono |
-| レベルシステム | プレイヤーレベル = 勝利数 / 5 + 1；プロフィールとランキングに表示 | nisi, maiyokono |
-| GDPR データエクスポート | `GET /api/users/me/export` — 全個人データを JSON でダウンロード | maiyokono |
-| GDPR アカウント削除 | `DELETE /api/users/me` — 個人データを匿名化；ゲーム記録はリーダーボードのために保持 | maiyokono |
+| トーナメントシステム | 4/8 人ブラケット作成；ゲーム完了時に自動次ラウンド進行；登録フロー | myokono |
+| マッチ履歴 | 過去のゲームをページネーション付きで一覧表示（相手・スコア・結果・日付） | timanish |
+| リーダーボード（ランキング） | 勝利数によるグローバルランキング；勝率とレベルを表示 | timanish |
+| 実績システム | マイルストーンで実績をアンロック；ダッシュボードに表示 | myokono |
+| レベルシステム | プレイヤーレベル = 勝利数 / 5 + 1；プロフィールとランキングに表示 | timanish, myokono |
+| GDPR データエクスポート | `GET /api/users/me/export` — 全個人データを JSON でダウンロード | myokono |
+| GDPR アカウント削除 | `DELETE /api/users/me` — 個人データを匿名化；ゲーム記録はリーダーボードのために保持 | myokono |
 | プライバシーポリシー | フッターからアクセス可能な静的ページ | pchung |
 | 利用規約 | フッターからアクセス可能な静的ページ | pchung |
-| レスポンシブレイアウト | デスクトップ・タブレット・モバイル対応（キーボード + タッチコントロール） | nisi |
+| レスポンシブレイアウト | デスクトップ・タブレット・モバイル対応（キーボード + タッチコントロール） | timanish |
 | Docker デプロイ | `docker compose up` 1 コマンドで nginx + フロントエンド + バックエンド起動 | ryabuki |
 
 ---
@@ -606,10 +606,10 @@ Achievements    — マスター（id, key, name, description, icon）
 
 | モジュール | カテゴリ | 実装内容 | 担当者 |
 |---|---|---|---|
-| フロントエンドとバックエンド両方にフレームワーク使用 | Web | React 19（フロントエンド）+ Fastify 5（バックエンド） | ryabuki, nisi |
+| フロントエンドとバックエンド両方にフレームワーク使用 | Web | React 19（フロントエンド）+ Fastify 5（バックエンド） | ryabuki, timanish |
 | WebSocket によるリアルタイム機能 | Web | 4 つの WebSocket エンドポイント（プレゼンス・マッチメイキング・ゲーム同期・チャット）；切断の適切な処理；効率的なブロードキャスト | ryabuki |
-| ユーザー間インタラクション | Web | DM チャット（送受信）、プロフィールページ（任意ユーザー閲覧）、フレンドシステム（追加/削除/承認） | pchung, nisi |
-| 標準ユーザー管理と認証 | User Management | プロフィール更新・アバターアップロード（デフォルト画像あり）・オンライン状態付きフレンド・プロフィールページ | ryabuki, pchung, nisi |
+| ユーザー間インタラクション | Web | DM チャット（送受信）、プロフィールページ（任意ユーザー閲覧）、フレンドシステム（追加/削除/承認） | pchung, timanish |
+| 標準ユーザー管理と認証 | User Management | プロフィール更新・アバターアップロード（デフォルト画像あり）・オンライン状態付きフレンド・プロフィールページ | ryabuki, pchung, timanish |
 | 完全な Web ゲームの実装 | Gaming | 2D Pong：サーバー権威型 60 Hz エンジン、スウェプト衝突判定、サーブ機能、先取 11 点、2D キャンバス描画 | ryabuki |
 | リモートプレイヤー | Gaming | 別マシンからの 2 人対戦；レイテンシ耐性スナップショットプロトコル；切断後の再接続 | ryabuki |
 
@@ -620,12 +620,12 @@ Achievements    — マスター（id, key, name, description, icon）
 | モジュール | カテゴリ | 実装内容 | 担当者 |
 |---|---|---|---|
 | ORM 使用 | Web | Prisma 5 + SQLite；型安全クエリ・マイグレーション管理 | ryabuki |
-| ゲーム統計とマッチ履歴 | User Management | 勝敗数・勝率・レベル・ページネーション付きマッチ履歴テーブル・リーダーボード | nisi, maiyokono |
+| ゲーム統計とマッチ履歴 | User Management | 勝敗数・勝率・レベル・ページネーション付きマッチ履歴テーブル・リーダーボード | timanish, myokono |
 | リモート認証（OAuth 2.0） | User Management | 42 Intranet OAuth；コールバック時に JWT を発行；メールによる既存アカウントへのリンク | ryabuki |
 | 二段階認証（2FA） | User Management | メール OTP：6 桁コード・bcrypt ハッシュ・10 分 TTL；ユーザーごとに有効化 | ryabuki, pchung |
-| トーナメントシステム | Gaming | 4/8 人シングルエリミネーションブラケット；ゲーム完了時の自動進行；登録/エイリアスシステム | maiyokono |
-| ゲーミフィケーションシステム | Gaming | 実績（DB 永続・マイルストーンでアンロック）・リーダーボード・XP/レベルシステム（勝利数/5+1）— 3 機能をダッシュボードのビジュアルフィードバック付きで実装 | maiyokono, nisi |
-| GDPR コンプライアンス機能 | Data & Analytics | データエクスポート（全個人データの JSON ダウンロード）；匿名化アカウント削除（メール/ニックネームを置換、認証情報を削除、ゲーム記録はリーダーボード整合性のために保持） | maiyokono |
+| トーナメントシステム | Gaming | 4/8 人シングルエリミネーションブラケット；ゲーム完了時の自動進行；登録/エイリアスシステム | myokono |
+| ゲーミフィケーションシステム | Gaming | 実績（DB 永続・マイルストーンでアンロック）・リーダーボード・XP/レベルシステム（勝利数/5+1）— 3 機能をダッシュボードのビジュアルフィードバック付きで実装 | myokono, timanish |
+| GDPR コンプライアンス機能 | Data & Analytics | データエクスポート（全個人データの JSON ダウンロード）；匿名化アカウント削除（メール/ニックネームを置換、認証情報を削除、ゲーム記録はリーダーボード整合性のために保持） | myokono |
 
 **Minor 小計：7 pt**
 
@@ -643,14 +643,14 @@ Achievements    — マスター（id, key, name, description, icon）
 - 5 つの E2E テストスクリプト（`.mjs`）を作成。
 - **主な課題：** サーバー権威型モデルでのパドル貫通とスナップショットドリフトの排除。各物理ティックでスウェプト衝突判定と位置補正を使用して解決。
 
-### nisi — プロジェクトマネージャー + 開発者
+### timanish — プロジェクトマネージャー + 開発者
 - フロントエンドページを構築：ダッシュボード・ランキング（リーダーボード）・マッチ履歴・ユーザープロフィールビュー・フレンドページ。
 - プレゼンスインジケーターと UI 全体のフレンドオンライン状態表示を実装。
 - 全ページのレスポンシブデザインを確保（Tailwind CSS ブレークポイント、ゲームのモバイルタッチコントロール）。
 - スプリントプランニング・GitHub Issues トリアージ・PR レビュー調整を管理。
 - **主な課題：** バックエンド WebSocket イベントとのフレンドプレゼンス状態同期の維持。リアクティブ `usePresence` フックと定期的な調整で解決。
 
-### maiyokono（Mai Yokono）— プロダクトオーナー + 開発者
+### myokono（Mai Yokono）— プロダクトオーナー + 開発者
 - 完全なトーナメントシステムを構築：バックエンドルート（`tournaments.ts`、16 KB）・フロントエンドブラケット UI（TournamentListPage, TournamentDetailPage）・自動ラウンド進行ロジック。
 - 実績システム（バックエンドルート + シードデータ）とダッシュボードのゲーミフィケーション表示を実装。
 - GDPR 機能を実装：全 JSON データエクスポートエンドポイントとトランザクション付き匿名化アカウント削除。
