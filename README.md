@@ -249,7 +249,7 @@ Achievements    — master (id, key, name, description, icon)
 
 ## Modules
 
-**Total: 19 points** (14 mandatory + 5 bonus)
+**Total: 17 points** (14 mandatory + 3 bonus)
 
 ### Major modules (2 pts each)
 
@@ -260,9 +260,8 @@ Achievements    — master (id, key, name, description, icon)
 | Allow users to interact with other users | Web | DM chat (send/receive), profile pages (view any user), friend system (add/remove/accept) | pchung, timanish |
 | Standard user management and authentication | User Management | Profile update, avatar upload with default fallback, friends with online status, dedicated profile page | ryabuki, pchung, timanish |
 | Implement a complete web-based game | Gaming | 2D Pong: server-authoritative 60 Hz engine, swept collision detection, serve mechanic, first to 11 wins, 2D canvas rendering | ryabuki |
-| Remote players | Gaming | Two players on separate machines; latency-tolerant snapshot protocol; reconnection within grace window | ryabuki |
 
-**Major subtotal: 12 pts**
+**Major subtotal: 10 pts**
 
 ### Minor modules (1 pt each)
 
@@ -278,7 +277,7 @@ Achievements    — master (id, key, name, description, icon)
 
 **Minor subtotal: 7 pts**
 
-**Grand total: 19 pts**
+**Grand total: 17 pts**
 
 ---
 
@@ -554,3 +553,141 @@ WaitingRooms    — マッチメイキングロビー（id, name, adminUserId, s
 Achievements    — マスター（id, key, name, description, icon）
   ↓ UserAchievements（userId, achievementId, unlockedAt）
 ```
+
+### 主要フィールド
+
+| テーブル | 主要フィールド |
+|---|---|
+| Users | `id PK`, `email UNIQUE`, `nickname UNIQUE`, `statusId FK`, `isTwoFactorEnabled` |
+| Accounts | `userId FK`, `provider`（local\|intra42）, `providerAccountId`, `passwordHash?` — UNIQUE(provider, providerAccountId) |
+| Games | `id PK`, `tournamentId?`, `round`, `order`, `winnerId?`, `statusId FK` |
+| PlayerScores | `gameId FK`, `userId FK`, `score`, `isWinner` |
+| Friendships | `userId FK`, `friendId FK`, `status`（pending\|accepted）— UNIQUE(userId, friendId) |
+| Messages | `senderId FK`, `receiverId FK`, `body`, `readAt?`、(sender,receiver,createdAt) でインデックス |
+| UserAchievements | `userId FK`, `achievementId FK`, `unlockedAt` — UNIQUE(userId, achievementId) |
+
+---
+
+## 機能一覧
+
+| 機能 | 説明 | 担当者 |
+|---|---|---|
+| ユーザー登録 / ログイン | メール + bcrypt（コスト 12）パスワード認証；JWT を sessionStorage に保存 | ryabuki |
+| 42 OAuth ログイン | 42 Intranet 経由 OAuth 2.0；メールが一致する場合は既存アカウントにリンク | ryabuki |
+| 二段階認証（2FA） | メール OTP（6 桁、bcrypt ハッシュ、10 分 TTL）；ユーザー任意で有効化 | ryabuki, pchung |
+| プロフィール編集 | ニックネーム・メール・パスワード・アバターアップロード（JPEG/PNG/GIF/WebP、最大 5 MB） | pchung |
+| ユーザープロフィールページ | 任意ユーザーの統計・アバター・マッチ履歴を表示 | timanish |
+| オンラインプレゼンス | WebSocket ハートビート；フレンドがリアルタイムでオンライン/オフラインを確認可能 | ryabuki |
+| フレンドシステム | 申請送信/承認/キャンセル/削除；オンライン状態付きフレンドリスト | timanish |
+| ブロック機能 | ユーザーをブロック/解除；メッセージングとマッチメイキングを遮断 | pchung |
+| ダイレクトメッセージ（DM） | WebSocket 経由 1 対 1 リアルタイムチャット；履歴を DB に永続化 | pchung |
+| マッチメイキングキュー | 待機中のプレイヤーを自動ペアリング；ブロック済み相手を除外 | ryabuki |
+| Pong ゲーム（2D） | サーバー権威型、60 Hz 物理演算、30 Hz スナップショット配信、先取 11 点 | ryabuki |
+| ゲーム再接続 | 切断後のグレース期間内に進行中ゲームへ復帰可能 | ryabuki |
+| トーナメントシステム | 4/8 人ブラケット作成；ゲーム完了時に自動次ラウンド進行；登録フロー | myokono |
+| マッチ履歴 | 過去のゲームをページネーション付きで一覧表示（相手・スコア・結果・日付） | timanish |
+| リーダーボード（ランキング） | 勝利数によるグローバルランキング；勝率とレベルを表示 | timanish |
+| 実績システム | マイルストーンで実績をアンロック；ダッシュボードに表示 | myokono |
+| レベルシステム | プレイヤーレベル = 勝利数 / 5 + 1；プロフィールとランキングに表示 | timanish, myokono |
+| GDPR データエクスポート | `GET /api/users/me/export` — 全個人データを JSON でダウンロード | myokono |
+| GDPR アカウント削除 | `DELETE /api/users/me` — 個人データを匿名化；ゲーム記録はリーダーボードのために保持 | myokono |
+| プライバシーポリシー | フッターからアクセス可能な静的ページ | pchung |
+| 利用規約 | フッターからアクセス可能な静的ページ | pchung |
+| レスポンシブレイアウト | デスクトップ・タブレット・モバイル対応（キーボード + タッチコントロール） | timanish |
+| Docker デプロイ | `docker compose up` 1 コマンドで nginx + フロントエンド + バックエンド起動 | ryabuki |
+
+---
+
+## モジュール
+
+**合計：17 ポイント**（必須 14pt + ボーナス 3pt）
+
+### Major モジュール（各 2pt）
+
+| モジュール | カテゴリ | 実装内容 | 担当者 |
+|---|---|---|---|
+| フロントエンドとバックエンド両方にフレームワーク使用 | Web | React 19（フロントエンド）+ Fastify 5（バックエンド） | ryabuki, timanish |
+| WebSocket によるリアルタイム機能 | Web | 4 つの WebSocket エンドポイント（`/ws/presence`・`/ws/matchmaking`・`/ws/game/:id`・`/ws/chat`）；切断の適切な処理；効率的なブロードキャスト | ryabuki |
+| ユーザー間インタラクション | Web | DM チャット（送受信）・プロフィールページ（任意ユーザー閲覧）・フレンドシステム（追加/削除/承認） | pchung, timanish |
+| 標準ユーザー管理と認証 | User Management | プロフィール更新・アバターアップロード（デフォルト表示あり）・オンライン状態付きフレンド・プロフィールページ | ryabuki, pchung, timanish |
+| 完全な Web ゲームの実装 | Gaming | 2D Pong：サーバー権威型 60 Hz エンジン・スウェプト衝突判定・サーブ機能・先取 11 点・2D キャンバス描画 | ryabuki |
+
+**Major 小計：10pt**
+
+### Minor モジュール（各 1pt）
+
+| モジュール | カテゴリ | 実装内容 | 担当者 |
+|---|---|---|---|
+| ORM 使用 | Web | Prisma 5 + SQLite；型安全クエリ・マイグレーション管理 | ryabuki |
+| ゲーム統計とマッチ履歴 | User Management | 勝敗数・勝率・レベル・ページネーション付きマッチ履歴テーブル・リーダーボード | timanish, myokono |
+| リモート認証（OAuth 2.0） | User Management | 42 Intranet OAuth；コールバック時に JWT を発行；メールによる既存アカウントへのリンク | ryabuki |
+| 二段階認証（2FA） | User Management | メール OTP：6 桁コード・bcrypt ハッシュ・10 分 TTL；ユーザーごとに有効化 | ryabuki, pchung |
+| トーナメントシステム | Gaming | 4/8 人シングルエリミネーションブラケット；ゲーム完了時の自動進行；登録/エイリアスシステム | myokono |
+| ゲーミフィケーションシステム | Gaming | 実績（DB 永続・マイルストーンでアンロック）・リーダーボード・XP/レベルシステム（勝利数/5+1）— 3 機能をダッシュボードのビジュアルフィードバック付きで実装 | myokono, timanish |
+| GDPR コンプライアンス機能 | Data & Analytics | データエクスポート（全個人データの JSON ダウンロード）；匿名化アカウント削除（メール/ニックネームを置換・認証情報を削除・ゲーム記録はリーダーボード整合性のために保持） | myokono |
+
+**Minor 小計：7pt**
+
+**合計：17pt**
+
+---
+
+## 個人の貢献
+
+### ryabuki（Rento Yabuki）— テクニカルリード + 開発者
+- サーバー権威型ゲームエンジン（`backend/src/lib/gameEngine.ts`）を設計・実装：60 Hz 物理ループ・スウェプト AABB 衝突・適応的ボール速度・ラウンド管理・スナップショットシリアライズ。
+- 4 つの WebSocket エンドポイント（`websocket.ts`）を構築：30 Hz ゲーム同期・プレゼンスブロードキャスト・マッチメイキングキューペアリング・リアルタイムチャット配信。
+- 認証スタック全体を実装：JWT 署名/検証・42 OAuth フロー・2FA チャレンジ/セットアップルート・bcrypt パスワード処理。
+- Docker Compose・nginx リバースプロキシ（HTTPS/WSS）・ARM/AMD Docker イメージ向けマルチプラットフォーム Prisma バイナリターゲットをセットアップ。
+- 5 つの E2E テストスクリプト（`.mjs`）を作成。
+- **主な課題：** サーバー権威型モデルでのパドル貫通とスナップショットドリフトの排除。各物理ティックでスウェプト衝突判定と位置補正を使用して解決。
+
+### timanish — プロジェクトマネージャー + 開発者
+- フロントエンドページを構築：ダッシュボード・ランキング（リーダーボード）・マッチ履歴・ユーザープロフィールビュー・フレンドページ。
+- プレゼンスインジケーターと UI 全体のフレンドオンライン状態表示を実装。
+- 全ページのレスポンシブデザインを確保（Tailwind CSS ブレークポイント・ゲームのモバイルタッチコントロール）。
+- スプリントプランニング・GitHub Issues トリアージ・PR レビュー調整を管理。
+- **主な課題：** バックエンド WebSocket イベントとのフレンドプレゼンス状態同期の維持。リアクティブ `usePresence` フックと定期的な調整で解決。
+
+### myokono（Mai Yokono）— プロダクトオーナー + 開発者
+- 完全なトーナメントシステムを構築：バックエンドルート（`tournaments.ts`）・フロントエンドブラケット UI（TournamentListPage, TournamentDetailPage）・自動ラウンド進行ロジック。
+- 実績システム（バックエンドルート + シードデータ）とダッシュボードのゲーミフィケーション表示を実装。
+- GDPR 機能を実装：全 JSON データエクスポートエンドポイントとトランザクション付き匿名化アカウント削除。
+- プロジェクト全体を通じてプロダクトバックログと機能優先度を管理。
+- **主な課題：** ブラケット自動進行でラウンド内のすべてのゲームが解決済みかを正確に判定する必要があった。ラウンドごとの未終了ゲーム数をカウントするデータベースクエリで解決。
+
+### pchung — 開発者
+- DM チャットを実装：バックエンド `messages.ts` ルートとリアルタイム WebSocket 配信付きフロントエンド ChatPage。
+- ブロックシステム（`blocks.ts`）を構築：双方向の適用（メッセージングとマッチメイキング除外）。
+- ProfileEditPage を実装：型/サイズバリデーション付きアバターアップロード・ニックネーム/メール/パスワード変更・2FA 有効化/無効化。
+- プライバシーポリシーと利用規約ページを作成（`legal.ts` バックエンド + フロントエンドページ）。
+- **主な課題：** ブロックされたユーザーをチャット配信とマッチメイキングキューペアリングの両方から、リクエストごとのデータベースオーバーヘッドなしに正確に除外する必要があった。WebSocket 接続時にブロック済みユーザーセットをキャッシュして解決。
+
+---
+
+## リソース
+
+### 参考資料
+- [Fastify ドキュメント](https://fastify.dev/docs/latest/)
+- [Prisma ドキュメント](https://www.prisma.io/docs)
+- [React ドキュメント](https://react.dev)
+- [Tailwind CSS v4 ドキュメント](https://tailwindcss.com/docs)
+- [Vite ドキュメント](https://vite.dev/guide/)
+- [WebSocket API — MDN](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
+- [HTML Canvas 2D API — MDN](https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API)
+- [JWT 入門](https://jwt.io/introduction)
+- [42 API ドキュメント](https://api.intra.42.fr/apidoc)
+- [GDPR — データ主体の権利](https://gdpr.eu/data-subject-rights/)
+- [bcrypt — パスワードハッシュ化](https://en.wikipedia.org/wiki/Bcrypt)
+
+### AI の活用
+
+Claude Code（Anthropic）を開発全体を通じて開発アシスタントとして使用しました：
+
+- **アーキテクチャ計画：** サーバー権威型 vs クライアントサイドゲームモデルのトレードオフを検討；AI がスウェプト衝突アプローチの根拠を明確化するのを支援。
+- **コード生成：** ボイラープレートのスキャフォールディング（Fastify ルートハンドラー・Prisma クエリパターン・React フック）に使用；生成されたコードはすべてマージ前に作者がレビュー・テスト・理解済み。
+- **デバッグ：** エラートレースを貼り付けて診断を依頼；AI の提案は適用前に実際のランタイム動作に対して検証。
+- **ドキュメント：** この README の構造およびプライバシーポリシー/利用規約の内容のドラフト作成を支援。
+- **テストスクリプト：** E2E `.mjs` スクリプトは AI アシスタンスで初稿を作成し、実行中のサーバーに対して手動で検証。
+
+AI が生成したコンテンツはすべてレビュー済みで、提出したチームメンバーが完全に理解しています。
