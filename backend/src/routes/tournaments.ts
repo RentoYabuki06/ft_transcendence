@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import prisma from '../lib/prisma.js'
 import { authenticate } from '../lib/middleware.js'
 import { advanceTournament } from '../lib/tournament.js'
+import { broadcastTournamentEvent, broadcastTournamentAdvance } from './websocket.js'
 
 export async function tournamentRoutes(fastify: FastifyInstance) {
   // --- GET /tournaments — トーナメント一覧 ---
@@ -304,6 +305,10 @@ export async function tournamentRoutes(fastify: FastifyInstance) {
       data: { statusId: ongoingStatus.id },
     })
 
+    // 参加者全員のページに「開始した」を通知する。
+    // 受信側は単純に詳細を再取得してブラケットを表示し直す。
+    broadcastTournamentEvent(tournamentId, { type: 'tournament:started', tournamentId })
+
     return reply.send({ message: 'トーナメントを開始しました', tournamentId })
   })
 
@@ -355,7 +360,13 @@ export async function tournamentRoutes(fastify: FastifyInstance) {
       for (const s of scores) await checkAndUnlockAchievements(s.userId)
 
       // トーナメント全試合終了チェック → 次ラウンド生成 or 終了
-      await advanceTournament(tournamentId)
+      const advanceResult = await advanceTournament(tournamentId)
+      // 参加者全員に進行結果を broadcast（websocket finalizeGame と同じ整形）
+      try {
+        await broadcastTournamentAdvance(tournamentId, advanceResult.status)
+      } catch (e) {
+        console.error('broadcastTournamentAdvance error:', e)
+      }
 
       return reply.send({ message: '結果を登録しました', winnerId: winner.userId })
     }

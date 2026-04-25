@@ -572,7 +572,7 @@ export function GamePage() {
                 onClick={() => navigate(`/tournaments/${tournamentId}`)}
                 className="cosmic-btn cosmic-btn-primary"
               >
-                ブラケットへ戻る
+                トーナメントに戻る
               </button>
             ) : (
               <button
@@ -788,7 +788,7 @@ export function GamePage() {
                         onClick={() => navigate(`/tournaments/${tournamentId}`)}
                         className="cosmic-btn cosmic-btn-primary"
                       >
-                        ブラケットへ戻る
+                        トーナメントに戻る
                       </button>
                       <button
                         onClick={() => navigate('/dashboard')}
