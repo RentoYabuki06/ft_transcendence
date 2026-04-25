@@ -61,6 +61,16 @@ export const api = {
     window.location.href = `${API_BASE}/auth/42`;
   },
 
+  // ログイン中ユーザーに 42 アカウントを紐付ける開始エンドポイント。
+  // バックエンドが署名済み state を含む authorize URL を返してくるので、それへ飛ばす。
+  start42Link: async () => {
+    const res = await request<{ url: string }>('/auth/42/link/start', { method: 'POST' });
+    window.location.href = res.url;
+  },
+
+  unlink42: () =>
+    request<{ message: string }>('/auth/42/link', { method: 'DELETE' }),
+
   // Users
   getMe: () =>
     request<import('../types').User>('/users/me'),
@@ -166,9 +176,11 @@ export const api = {
   },
 
   getGame: (id: number) =>
-    request<{ id: number; players: Array<{ userId: number; user: { id: number; nickname: string; avatarUrl: string | null } | null }> }>(
-      `/games/${id}`
-    ),
+    request<{
+      id: number;
+      tournamentId: number | null;
+      players: Array<{ userId: number; user: { id: number; nickname: string; avatarUrl: string | null } | null }>;
+    }>(`/games/${id}`),
 
   getRanking: (params?: { page?: number; limit?: number }) => {
     const query = new URLSearchParams();
@@ -181,7 +193,7 @@ export const api = {
 
   // Matchmaking
   joinMatchmaking: () =>
-    request<{ waitingRoomId: number; matched?: boolean; gameId?: number }>(
+    request<{ waitingRoomId?: number; matched?: boolean; gameId?: number; reconnect?: boolean }>(
       '/matchmaking/join',
       { method: 'POST' }
     ),

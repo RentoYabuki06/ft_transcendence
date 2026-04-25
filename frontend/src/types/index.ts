@@ -4,6 +4,7 @@ export interface User {
   email: string;
   avatarUrl: string | null;
   isTwoFactorEnabled: boolean;
+  is42Linked: boolean;
   statusId: number;
   status: Status;
   wins: number;

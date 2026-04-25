@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { useState, useEffect, type CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { api } from '../services/api';
@@ -14,6 +14,18 @@ export function LoginPage() {
   const [resendMsg, setResendMsg] = useState('');
   const { login, complete2FALogin } = useAuth();
   const navigate = useNavigate();
+
+  // OAuth 失敗時に /login?error=oauth_failed に飛んでくるので拾って表示する
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get('error') === 'oauth_failed') {
+      setError('42 認証に失敗しました。もう一度お試しください。');
+      sp.delete('error');
+      const q = sp.toString();
+      const newUrl = window.location.pathname + (q ? `?${q}` : '') + window.location.hash;
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

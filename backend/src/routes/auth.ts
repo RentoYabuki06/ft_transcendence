@@ -1,11 +1,43 @@
 import { FastifyInstance } from 'fastify'
 import bcrypt from 'bcryptjs'
 import axios from 'axios'
+import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
 import { signToken } from '../lib/auth.js'
 import { authenticate } from '../lib/middleware.js'
 import { buildUserResponse } from '../lib/userBuilder.js'
 import { issueOtpAndSend, verifyOtp } from './twofa.js'
+
+// 42 OAuth 用の link state token: ログイン中ユーザーに 42 を紐付けたい時、
+// JWT を OAuth `state` に詰めて自分の callback まで運ぶための短命トークン。
+interface LinkStatePayload {
+  link: true
+  userId: number
+  nonce: string
+}
+
+function buildAuthorizeUrl(clientId: string, redirectUri: string, state: string): string {
+  return (
+    `https://api.intra.42.fr/oauth/authorize` +
+    `?client_id=${encodeURIComponent(clientId)}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&response_type=code` +
+    `&state=${encodeURIComponent(state)}`
+  )
+}
+
+// ニックネーム重複時に末尾に連番を付けて空きを探す
+async function pickUniqueNickname(base: string): Promise<string> {
+  const trimmed = base.slice(0, 17) // 末尾連番分の余白を確保（最大20）
+  let candidate = trimmed
+  let suffix = 0
+  // SQLite のロック競合を避けるためループ上限を設ける
+  while (suffix < 1000 && (await prisma.users.findUnique({ where: { nickname: candidate } }))) {
+    suffix += 1
+    candidate = `${trimmed}${suffix}`
+  }
+  return candidate
+}
 
 export async function authRoutes(fastify: FastifyInstance) {
   // POST /auth/signup
@@ -182,23 +214,86 @@ export async function authRoutes(fastify: FastifyInstance) {
     return reply.send(null)
   })
 
-  // GET /auth/42 — 42 OAuth 開始
+  // GET /auth/42 — 42 OAuth 開始（ログイン/新規登録）
   fastify.get('/auth/42', async (_request, reply) => {
     const clientId = process.env.INTRA42_CLIENT_ID
-    const redirectUri = process.env.INTRA42_REDIRECT_URI || 'http://localhost:3000/auth/42/callback'
+    const redirectUri = process.env.INTRA42_REDIRECT_URI || 'https://localhost:8443/api/auth/42/callback'
     if (!clientId) {
       return reply.code(503).send({ message: '42 OAuth が設定されていません' })
     }
+    // ログイン用は state にランダム値だけ詰める（CSRF 対策のためのプレースホルダ）
     const state = Math.random().toString(36).slice(2)
-    const url = `https://api.intra.42.fr/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&state=${state}`
-    return reply.redirect(url)
+    return reply.redirect(buildAuthorizeUrl(clientId, redirectUri, state))
+  })
+
+  // POST /auth/42/link/start — ログイン中ユーザーに 42 を紐付ける開始エンドポイント。
+  // フロントは Bearer 付きで叩いて、返された url にブラウザを飛ばす。
+  fastify.post('/auth/42/link/start', { preHandler: authenticate }, async (request, reply) => {
+    const userId = (request as any).userId as number
+    const clientId = process.env.INTRA42_CLIENT_ID
+    const redirectUri = process.env.INTRA42_REDIRECT_URI || 'https://localhost:8443/api/auth/42/callback'
+    if (!clientId) {
+      return reply.code(503).send({ message: '42 OAuth が設定されていません' })
+    }
+
+    // 既に紐付いていれば即時エラー（無駄な OAuth ラウンドトリップを防ぐ）
+    const existing = await prisma.accounts.findFirst({
+      where: { userId, provider: 'intra42' },
+    })
+    if (existing) {
+      return reply.code(409).send({ message: '既に 42 アカウントが連携されています' })
+    }
+
+    // 5 分で失効する linkState トークンを発行し、それを OAuth `state` として渡す
+    const secret = process.env.JWT_SECRET
+    if (!secret) return reply.code(500).send({ message: 'サーバー設定エラー' })
+    const linkState = jwt.sign(
+      { link: true, userId, nonce: Math.random().toString(36).slice(2) } satisfies LinkStatePayload,
+      secret,
+      { expiresIn: '5m' }
+    )
+    return reply.send({ url: buildAuthorizeUrl(clientId, redirectUri, linkState) })
+  })
+
+  // DELETE /auth/42/link — 連携解除
+  fastify.delete('/auth/42/link', { preHandler: authenticate }, async (request, reply) => {
+    const userId = (request as any).userId as number
+
+    // ローカル認証手段があるかチェックしないと、42 解除した瞬間にロックアウトされる
+    const localAccount = await prisma.accounts.findFirst({
+      where: { userId, provider: 'local', passwordHash: { not: null } },
+    })
+    if (!localAccount) {
+      return reply
+        .code(400)
+        .send({ message: 'パスワードを設定してから 42 連携を解除してください' })
+    }
+
+    await prisma.accounts.deleteMany({ where: { userId, provider: 'intra42' } })
+    return reply.send({ message: '42 連携を解除しました' })
   })
 
   // GET /auth/42/callback — 42 OAuth コールバック
+  // 通常のログイン/新規登録に加え、`state` が link トークンならログイン中ユーザーに 42 を紐付ける。
   fastify.get('/auth/42/callback', async (request, reply) => {
-    const { code } = request.query as { code?: string }
+    const { code, state } = request.query as { code?: string; state?: string }
+    const frontendUrl = process.env.FRONTEND_URL || 'https://localhost:8443'
+
     if (!code) {
-      return reply.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=oauth_failed`)
+      return reply.redirect(`${frontendUrl}/login?error=oauth_failed`)
+    }
+
+    // state が link トークンなら「設定画面からの連携モード」
+    let linkUserId: number | null = null
+    if (state && process.env.JWT_SECRET) {
+      try {
+        const payload = jwt.verify(state, process.env.JWT_SECRET) as Partial<LinkStatePayload>
+        if (payload?.link === true && typeof payload.userId === 'number') {
+          linkUserId = payload.userId
+        }
+      } catch {
+        // state がただのランダム文字列（ログインモード）なら検証失敗は無視
+      }
     }
 
     try {
@@ -223,23 +318,67 @@ export async function authRoutes(fastify: FastifyInstance) {
       })
       if (!activeStatus) throw new Error('Status not seeded')
 
-      let user = await prisma.users.findUnique({ where: { email } })
+      // 連携モード: state.userId に対して 42 アカウントを紐付ける
+      if (linkUserId !== null) {
+        const existingForIntra = await prisma.accounts.findUnique({
+          where: {
+            provider_providerAccountId: {
+              provider: 'intra42',
+              providerAccountId: String(intraId),
+            },
+          },
+        })
+        if (existingForIntra && existingForIntra.userId !== linkUserId) {
+          // この 42 アカウントは別ユーザーに紐付け済み
+          return reply.redirect(`${frontendUrl}/profile/edit?error=already_linked_other`)
+        }
+        if (!existingForIntra) {
+          await prisma.accounts.create({
+            data: {
+              userId: linkUserId,
+              provider: 'intra42',
+              providerAccountId: String(intraId),
+              statusId: activeStatus.id,
+            },
+          })
+        }
+        return reply.redirect(`${frontendUrl}/profile/edit?linked=42`)
+      }
+
+      // 通常のログイン/新規登録モード:
+      // 1) 42 アカウントが既に存在 → そのユーザーでログイン
+      // 2) email が一致するユーザー → そのユーザーに 42 を紐付けてログイン
+      // 3) どちらも無い → 新規ユーザー作成
+      let user = null as Awaited<ReturnType<typeof prisma.users.findUnique>>
+
+      const existing42 = await prisma.accounts.findUnique({
+        where: {
+          provider_providerAccountId: { provider: 'intra42', providerAccountId: String(intraId) },
+        },
+      })
+      if (existing42) {
+        user = await prisma.users.findUnique({ where: { id: existing42.userId } })
+      }
+
       if (!user) {
+        user = await prisma.users.findUnique({ where: { email } })
+      }
+
+      if (!user) {
+        // ニックネーム重複時はサフィックスで回避（既存ローカルユーザーと衝突しても落ちないように）
+        const nickname = await pickUniqueNickname(login)
         user = await prisma.users.create({
           data: {
             email,
             name: login,
-            nickname: login,
+            nickname,
             pictureURL: image?.link ?? null,
             statusId: activeStatus.id,
           },
         })
       }
 
-      const existing42Account = await prisma.accounts.findUnique({
-        where: { provider_providerAccountId: { provider: 'intra42', providerAccountId: String(intraId) } },
-      })
-      if (!existing42Account) {
+      if (!existing42) {
         await prisma.accounts.create({
           data: {
             userId: user.id,
@@ -250,12 +389,14 @@ export async function authRoutes(fastify: FastifyInstance) {
         })
       }
 
-      const token = signToken({ userId: user.id, email: user.email })
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173'
-      return reply.redirect(`${frontendUrl}/dashboard?token=${token}`)
+      const jwtToken = signToken({ userId: user.id, email: user.email })
+      return reply.redirect(`${frontendUrl}/dashboard?token=${jwtToken}`)
     } catch (err) {
       fastify.log.error(err)
-      return reply.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=oauth_failed`)
+      const dest = linkUserId !== null
+        ? `${frontendUrl}/profile/edit?error=oauth_failed`
+        : `${frontendUrl}/login?error=oauth_failed`
+      return reply.redirect(dest)
     }
   })
 }

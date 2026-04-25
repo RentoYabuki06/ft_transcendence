@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { UserAvatar } from '../components/UserAvatar';
@@ -41,6 +41,9 @@ export function TournamentDetailPage() {
   const [alias, setAlias] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  // 優勝確定時の祝福バナー（WebSocket で受信した勝者情報）
+  const [winnerInfo, setWinnerInfo] = useState<{ userId: number; nickname: string | null } | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
   const load = () => {
     if (!tournamentId) return;
@@ -54,6 +57,94 @@ export function TournamentDetailPage() {
   useEffect(() => {
     load();
   }, [tournamentId]);
+
+  // トーナメント進行イベントを WebSocket で購読する。
+  // - 開始ボタンが押された / 試合が終わった / ラウンドが進んだ / 優勝者が確定した、
+  //   いずれの場合でも他の参加者の画面が即座に更新される。
+  // - 接続が切れたら 3 秒後に再接続。ポーリング fallback も併せて持っておく。
+  useEffect(() => {
+    if (!tournamentId) return;
+    const token = sessionStorage.getItem('auth_token');
+    if (!token) return;
+
+    let cancelled = false;
+    let retryTimer: number | null = null;
+
+    const connect = () => {
+      if (cancelled) return;
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const url = `${proto}//${window.location.host}/api/ws/tournament/${tournamentId}?token=${encodeURIComponent(token)}`;
+      const ws = new WebSocket(url);
+      wsRef.current = ws;
+
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (
+            msg.type === 'tournament:started' ||
+            msg.type === 'tournament:updated' ||
+            msg.type === 'tournament:round_advanced'
+          ) {
+            // 詳細を再取得してブラケット表示を更新
+            load();
+          } else if (msg.type === 'tournament:finished') {
+            if (msg.winner) {
+              setWinnerInfo(msg.winner);
+            }
+            load();
+          }
+        } catch {
+          /* ignore malformed payloads */
+        }
+      };
+
+      ws.onerror = () => {
+        // close で再接続するのでここは何もしない
+      };
+      ws.onclose = () => {
+        if (cancelled) return;
+        retryTimer = window.setTimeout(connect, 3000);
+      };
+    };
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+      if (wsRef.current) {
+        try { wsRef.current.close(); } catch { /* noop */ }
+        wsRef.current = null;
+      }
+    };
+  }, [tournamentId]);
+
+  // 進行中のトーナメントは 5 秒ごとに再取得（WebSocket 取りこぼし対策の保険）
+  useEffect(() => {
+    if (!tournamentId) return;
+    if (detail?.status?.name !== 'ongoing') return;
+    const handle = window.setInterval(() => {
+      api.getTournament(tournamentId).then(setDetail).catch(() => {});
+    }, 5000);
+    return () => window.clearInterval(handle);
+  }, [tournamentId, detail?.status?.name]);
+
+  // 状態が finished になったら、winnerInfo がまだ無くてもブラケットから決勝勝者を引いて表示
+  useEffect(() => {
+    if (!detail) return;
+    if (detail.status?.name !== 'finished') return;
+    if (winnerInfo) return;
+    if (detail.bracket.length === 0) return;
+    const maxRound = Math.max(...detail.bracket.map((g) => g.round));
+    const finals = detail.bracket.filter((g) => g.round === maxRound);
+    const finalGame = finals.find((g) => g.winnerId !== null);
+    if (!finalGame || finalGame.winnerId === null) return;
+    const winnerPlayer = finalGame.players.find((p) => p.userId === finalGame.winnerId);
+    setWinnerInfo({
+      userId: finalGame.winnerId,
+      nickname: winnerPlayer?.nickname ?? null,
+    });
+  }, [detail, winnerInfo]);
 
   if (!tournamentId) return <div className="py-8 text-center">無効なIDです</div>;
   if (!detail) return <div className="py-8 text-center text-star-white/50">読み込み中...</div>;
@@ -147,6 +238,49 @@ export function TournamentDetailPage() {
       {error && (
         <div className="p-3 rounded-xl bg-cosmic-red/10 border border-cosmic-red/30 text-cosmic-red text-sm">
           {error}
+        </div>
+      )}
+
+      {/* 優勝者バナー: トーナメントが完了したら参加者全員に表示 */}
+      {winnerInfo && (
+        <div
+          style={{
+            padding: '1.25rem 1.5rem',
+            borderRadius: '14px',
+            background: 'linear-gradient(135deg, rgba(255,79,216,0.15) 0%, rgba(110,231,255,0.15) 100%)',
+            border: '1px solid rgba(255,79,216,0.5)',
+            textAlign: 'center',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.4rem',
+            boxShadow: '0 0 32px rgba(255,79,216,0.2)',
+          }}
+        >
+          <div
+            style={{
+              fontSize: '0.7rem',
+              letterSpacing: '0.2em',
+              color: 'rgba(110,231,255,0.8)',
+              fontWeight: 700,
+            }}
+          >
+            🏆 TOURNAMENT CHAMPION 🏆
+          </div>
+          <div
+            className="font-display"
+            style={{
+              fontSize: '1.6rem',
+              fontWeight: 800,
+              color: '#ff4fd8',
+              textShadow: '0 0 16px rgba(255,79,216,0.6)',
+              letterSpacing: '0.05em',
+            }}
+          >
+            {winnerInfo.nickname ?? `User #${winnerInfo.userId}`}
+          </div>
+          <div style={{ fontSize: '0.85rem', color: 'rgba(250,245,255,0.7)' }}>
+            おめでとうございます！
+          </div>
         </div>
       )}
 

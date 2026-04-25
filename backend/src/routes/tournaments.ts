@@ -1,6 +1,8 @@
 import { FastifyInstance } from 'fastify'
 import prisma from '../lib/prisma.js'
 import { authenticate } from '../lib/middleware.js'
+import { advanceTournament } from '../lib/tournament.js'
+import { broadcastTournamentEvent, broadcastTournamentAdvance } from './websocket.js'
 
 export async function tournamentRoutes(fastify: FastifyInstance) {
   // --- GET /tournaments — トーナメント一覧 ---
@@ -262,9 +264,11 @@ export async function tournamentRoutes(fastify: FastifyInstance) {
       where: { tournamentId },
     })
 
-    const minParticipants = 4
-    if (participants.length < minParticipants) {
-      return reply.code(400).send({ message: `最低${minParticipants}人必要です（現在${participants.length}人）` })
+    // 欠員によるブラケット破綻を防ぐため、定員が埋まるまで開始不可にする
+    if (participants.length !== tournament.maxParticipants) {
+      return reply.code(400).send({
+        message: `開始するには定員${tournament.maxParticipants}人が必要です（現在${participants.length}人）`,
+      })
     }
 
     // シャッフルしてブラケット生成
@@ -300,6 +304,10 @@ export async function tournamentRoutes(fastify: FastifyInstance) {
       where: { id: tournamentId },
       data: { statusId: ongoingStatus.id },
     })
+
+    // 参加者全員のページに「開始した」を通知する。
+    // 受信側は単純に詳細を再取得してブラケットを表示し直す。
+    broadcastTournamentEvent(tournamentId, { type: 'tournament:started', tournamentId })
 
     return reply.send({ message: 'トーナメントを開始しました', tournamentId })
   })
@@ -351,72 +359,16 @@ export async function tournamentRoutes(fastify: FastifyInstance) {
       const { checkAndUnlockAchievements } = await import('./websocket.js')
       for (const s of scores) await checkAndUnlockAchievements(s.userId)
 
-      // トーナメント全試合終了チェック
-      await checkTournamentCompletion(tournamentId)
+      // トーナメント全試合終了チェック → 次ラウンド生成 or 終了
+      const advanceResult = await advanceTournament(tournamentId)
+      // 参加者全員に進行結果を broadcast（websocket finalizeGame と同じ整形）
+      try {
+        await broadcastTournamentAdvance(tournamentId, advanceResult.status)
+      } catch (e) {
+        console.error('broadcastTournamentAdvance error:', e)
+      }
 
       return reply.send({ message: '結果を登録しました', winnerId: winner.userId })
     }
   )
-}
-
-// トーナメントの全ラウンド1試合終了後に次ラウンドを生成
-async function checkTournamentCompletion(tournamentId: number) {
-  const allGames = await prisma.games.findMany({ where: { tournamentId } })
-  const finishedStatus = await prisma.statuses.findFirst({
-    where: { category: 'game', name: 'finished' },
-  })
-  const finishedTournamentStatus = await prisma.statuses.findFirst({
-    where: { category: 'tournament', name: 'finished' },
-  })
-  const gamePendingStatus = await prisma.statuses.findFirst({
-    where: { category: 'game', name: 'pending' },
-  })
-  const gameType = await prisma.gameTypes.findFirst()
-
-  if (!finishedStatus || !finishedTournamentStatus || !gamePendingStatus) return
-
-  const maxRound = Math.max(...allGames.map(g => g.round))
-  const currentRoundGames = allGames.filter(g => g.round === maxRound)
-  const allFinished = currentRoundGames.every(g => g.statusId === finishedStatus.id)
-
-  if (!allFinished) return
-
-  // 勝者を集める
-  const winners = currentRoundGames
-    .map(g => g.winnerId)
-    .filter((w): w is number => w !== null)
-
-  if (winners.length === 1) {
-    // 優勝者決定 → トーナメント終了
-    await prisma.tournaments.update({
-      where: { id: tournamentId },
-      data: { statusId: finishedTournamentStatus.id },
-    })
-    return
-  }
-
-  // 次ラウンドの試合生成
-  const nextRound = maxRound + 1
-  const shuffled = [...winners].sort(() => Math.random() - 0.5)
-
-  for (let i = 0; i < shuffled.length; i += 2) {
-    if (i + 1 >= shuffled.length) break
-    const game = await prisma.games.create({
-      data: {
-        statusId: gamePendingStatus.id,
-        tournamentId,
-        round: nextRound,
-        order: Math.floor(i / 2) + 1,
-        playerNum: 2,
-        gameTypeId: gameType?.id ?? 1,
-      },
-    })
-
-    await prisma.playerScores.createMany({
-      data: [
-        { gameId: game.id, userId: shuffled[i], statusId: gamePendingStatus.id },
-        { gameId: game.id, userId: shuffled[i + 1], statusId: gamePendingStatus.id },
-      ],
-    })
-  }
 }

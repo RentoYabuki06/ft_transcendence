@@ -23,6 +23,23 @@ export async function matchmakingRoutes(fastify: FastifyInstance) {
       return reply.code(500).send({ message: 'ステータスマスターが初期化されていません' })
     }
 
+    // 進行中(pending)の通常対戦(1v1)が残っていたらその試合へ戻す（切断→ホーム→再マッチ のフロー対策）
+    // トーナメント試合はブラケット画面から直接遷移するため、ここで横取りしない。
+    const pendingScore = await prisma.playerScores.findFirst({
+      where: { userId, statusId: gameStatus.id },
+      orderBy: { id: 'desc' },
+    })
+    if (pendingScore) {
+      const pendingGame = await prisma.games.findUnique({ where: { id: pendingScore.gameId } })
+      if (
+        pendingGame &&
+        pendingGame.statusId === gameStatus.id &&
+        pendingGame.tournamentId === null
+      ) {
+        return reply.send({ matched: true, gameId: pendingGame.id, reconnect: true })
+      }
+    }
+
     // 既に待機中か確認: 自分1人だけで待機中なら部屋ごと破棄して再マッチング
     const alreadyWaiting = await prisma.waitingRoomParticipants.findFirst({
       where: { userId },

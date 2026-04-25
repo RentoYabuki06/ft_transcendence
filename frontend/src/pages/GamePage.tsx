@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { api } from '../services/api';
 
 // サーバー側 gameEngine と同一の座標系
 const WIDTH = 800;
@@ -57,7 +58,9 @@ export function GamePage() {
   const reconnectAttemptsRef = useRef(0);
   const inputRef = useRef({ up: false, down: false });
   const pauseTimerRef = useRef<number | null>(null);
-  const finishedPayloadRef = useRef<{ winnerId: number | null } | null>(null);
+  const finishedPayloadRef = useRef<{ winnerId: number | null; tournamentId: number | null } | null>(null);
+  const tournamentIdRef = useRef<number | null>(null);
+  const [tournamentId, setTournamentId] = useState<number | null>(null);
 
   const [connStatus, setConnStatus] = useState<ConnStatus>('connecting');
   const [phase, setPhase] = useState<Phase>('waiting');
@@ -82,6 +85,28 @@ export function GamePage() {
       window.removeEventListener('orientationchange', handler);
     };
   }, []);
+
+  // 試合の所属トーナメント ID を取得（終了後の遷移先判定に使用）
+  useEffect(() => {
+    if (!gameId) return;
+    const numId = parseInt(gameId, 10);
+    if (Number.isNaN(numId)) return;
+    let cancelled = false;
+    api
+      .getGame(numId)
+      .then((g) => {
+        if (cancelled) return;
+        const tid = g.tournamentId ?? null;
+        tournamentIdRef.current = tid;
+        setTournamentId(tid);
+      })
+      .catch(() => {
+        // 取得失敗は致命的ではない（通常対戦扱いで遷移する）
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [gameId]);
 
   // WebSocket 接続
   useEffect(() => {
@@ -133,9 +158,20 @@ export function GamePage() {
 
         if (msg.type === 'connected') {
           sideRef.current = (msg.yourSide as Side) ?? null;
-          setConnStatus((prev) =>
-            prev === 'reconnecting' ? 'playing' : 'waiting',
-          );
+          const isReconnect = msg.reconnect === true;
+          // 古い snapshot を破棄（performance.now() の基準がずれるため）
+          if (isReconnect) snapshotsRef.current = [];
+          setConnStatus((prev) => {
+            if (isReconnect) return 'playing';
+            return prev === 'reconnecting' ? 'playing' : 'waiting';
+          });
+          if (isReconnect) {
+            if (pauseTimerRef.current !== null) {
+              window.clearInterval(pauseTimerRef.current);
+              pauseTimerRef.current = null;
+            }
+            setPauseSeconds(null);
+          }
           return;
         }
 
@@ -208,7 +244,15 @@ export function GamePage() {
           intentionalCloseRef.current = true;
           const winnerId =
             typeof msg.winnerId === 'number' ? (msg.winnerId as number) : null;
-          finishedPayloadRef.current = { winnerId };
+          const tid =
+            typeof msg.tournamentId === 'number'
+              ? (msg.tournamentId as number)
+              : tournamentIdRef.current;
+          if (tid !== null && tournamentIdRef.current !== tid) {
+            tournamentIdRef.current = tid;
+            setTournamentId(tid);
+          }
+          finishedPayloadRef.current = { winnerId, tournamentId: tid };
           if (winnerId === null) {
             setWinner(null);
           } else if (user) {
@@ -521,14 +565,23 @@ export function GamePage() {
               : '接続が切断されました'}
           </div>
           <div
-            style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}
+            style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}
           >
-            <button
-              onClick={() => navigate('/matching')}
-              className="cosmic-btn cosmic-btn-primary"
-            >
-              もう一度対戦
-            </button>
+            {tournamentId !== null ? (
+              <button
+                onClick={() => navigate(`/tournaments/${tournamentId}`)}
+                className="cosmic-btn cosmic-btn-primary"
+              >
+                トーナメントに戻る
+              </button>
+            ) : (
+              <button
+                onClick={() => navigate('/matching')}
+                className="cosmic-btn cosmic-btn-primary"
+              >
+                もう一度対戦
+              </button>
+            )}
             <button
               onClick={() => navigate('/dashboard')}
               className="cosmic-btn"
@@ -728,19 +781,38 @@ export function GamePage() {
                 <div className="font-display text-3xl text-star-white mb-8">
                   {scores.my} - {scores.opp}
                 </div>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button
-                    onClick={() => navigate('/matching')}
-                    className="cosmic-btn cosmic-btn-primary"
-                  >
-                    もう一度対戦
-                  </button>
-                  <button
-                    onClick={() => navigate('/dashboard')}
-                    className="cosmic-btn"
-                  >
-                    ダッシュボードへ
-                  </button>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                  {tournamentId !== null ? (
+                    <>
+                      <button
+                        onClick={() => navigate(`/tournaments/${tournamentId}`)}
+                        className="cosmic-btn cosmic-btn-primary"
+                      >
+                        トーナメントに戻る
+                      </button>
+                      <button
+                        onClick={() => navigate('/dashboard')}
+                        className="cosmic-btn"
+                      >
+                        ダッシュボードへ
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => navigate('/matching')}
+                        className="cosmic-btn cosmic-btn-primary"
+                      >
+                        もう一度対戦
+                      </button>
+                      <button
+                        onClick={() => navigate('/dashboard')}
+                        className="cosmic-btn"
+                      >
+                        ダッシュボードへ
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             )}

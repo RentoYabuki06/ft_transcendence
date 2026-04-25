@@ -13,6 +13,7 @@ import {
   tick,
   TICK_MS,
 } from '../lib/gameEngine.js'
+import { advanceTournament } from '../lib/tournament.js'
 
 // --- 接続管理 ---
 // presenceMap: userId -> WebSocket (オンライン状態)
@@ -36,10 +37,13 @@ interface GameInstance {
 
 const gameInstances = new Map<number, GameInstance>()
 
-const PLAYER_GRACE_MS = 15_000 // 片方切断の猶予
+const PLAYER_GRACE_MS = 60_000 // 片方切断の猶予（ホーム→再マッチで戻るフローに備えて長めに設定）
 const ROOM_DROP_MS = 60_000    // 両者切断の猶予
 // chatMap: userId -> Set<WebSocket> (チャットリアルタイム配信、複数タブ対応)
 const chatMap = new Map<number, Set<WebSocket>>()
+// tournamentMap: tournamentId -> Set<WebSocket> (トーナメント詳細ページ購読者)
+// 開始 / ラウンド進行 / 優勝者確定の broadcast に使う
+const tournamentMap = new Map<number, Set<WebSocket>>()
 
 // --- ヘルパー ---
 function broadcast(map: Map<number, WebSocket>, data: unknown) {
@@ -87,6 +91,59 @@ export function deliverChatMessage(
   const msg = JSON.stringify({ type: 'chat_message', ...payload })
   for (const ws of sockets) {
     if (ws.readyState === ws.OPEN) ws.send(msg)
+  }
+}
+
+// --- エクスポート: トーナメント全体に通知（参加者全員のページに届く） ---
+export function broadcastTournamentEvent(tournamentId: number, data: unknown) {
+  const set = tournamentMap.get(tournamentId)
+  if (!set) return
+  const msg = JSON.stringify(data)
+  for (const ws of set) {
+    if (ws.readyState === ws.OPEN) ws.send(msg)
+  }
+}
+
+// 進行ステータス（next_round_created / tournament_finished）を解釈して
+// 詳細ページへ汎用イベントを broadcast する。
+// 優勝終了時は勝者ニックネームを添えて全員にお祝い表示できるようにする。
+export async function broadcastTournamentAdvance(
+  tournamentId: number,
+  status: 'no_op' | 'next_round_created' | 'tournament_finished',
+) {
+  if (status === 'no_op') {
+    // 「試合が1つ終わった」段階でも他参加者の画面を更新したいので、
+    // 現状の最新スナップショットをトリガする軽量メッセージは送る
+    broadcastTournamentEvent(tournamentId, { type: 'tournament:updated', tournamentId })
+    return
+  }
+  if (status === 'next_round_created') {
+    broadcastTournamentEvent(tournamentId, { type: 'tournament:round_advanced', tournamentId })
+    return
+  }
+  if (status === 'tournament_finished') {
+    // 勝者を取得して付与
+    const tournament = await prisma.tournaments.findUnique({ where: { id: tournamentId } })
+    let winner: { userId: number; nickname: string | null } | null = null
+    if (tournament) {
+      const games = await prisma.games.findMany({
+        where: { tournamentId },
+        orderBy: [{ round: 'desc' }, { order: 'asc' }],
+      })
+      // 最終ラウンド（最大 round）の唯一の winner
+      const finalRound = games.length > 0 ? games[0].round : 0
+      const finals = games.filter(g => g.round === finalRound)
+      const finalWinnerId = finals.find(g => g.winnerId !== null)?.winnerId ?? null
+      if (finalWinnerId !== null) {
+        const u = await prisma.users.findUnique({ where: { id: finalWinnerId } })
+        winner = { userId: finalWinnerId, nickname: u?.nickname ?? null }
+      }
+    }
+    broadcastTournamentEvent(tournamentId, {
+      type: 'tournament:finished',
+      tournamentId,
+      winner,
+    })
   }
 }
 
@@ -203,6 +260,44 @@ export async function websocketRoutes(fastify: FastifyInstance) {
   })
 
   // ----------------------------------------------------------------
+  // WS /ws/tournament/:id — トーナメント詳細の進行通知
+  //   - 開始 / ラウンド進行 / 優勝確定を全参加者にリアルタイム配信する
+  //   - 認証必須。参加者でなくても観戦目的で開いて良い（情報漏洩はない）
+  // ----------------------------------------------------------------
+  fastify.get('/ws/tournament/:id', { websocket: true }, (socket, request) => {
+    const token = (request.query as Record<string, string>).token
+    const userId = token ? authenticateWs(token) : null
+    if (!userId) {
+      socket.send(JSON.stringify({ type: 'error', message: '認証が必要です' }))
+      socket.close()
+      return
+    }
+    const tournamentId = parseInt((request.params as Record<string, string>).id, 10)
+    if (isNaN(tournamentId)) {
+      socket.send(JSON.stringify({ type: 'error', message: '無効なトーナメントIDです' }))
+      socket.close()
+      return
+    }
+
+    let set = tournamentMap.get(tournamentId)
+    if (!set) {
+      set = new Set()
+      tournamentMap.set(tournamentId, set)
+    }
+    set.add(socket)
+    socket.send(JSON.stringify({ type: 'tournament:subscribed', tournamentId }))
+
+    const cleanup = () => {
+      const s = tournamentMap.get(tournamentId)
+      if (!s) return
+      s.delete(socket)
+      if (s.size === 0) tournamentMap.delete(tournamentId)
+    }
+    socket.on('close', cleanup)
+    socket.on('error', cleanup)
+  })
+
+  // ----------------------------------------------------------------
   // WS /ws/game/:id — ゲームリアルタイム同期（サーバー権威モデル）
   // ----------------------------------------------------------------
   fastify.get('/ws/game/:id', { websocket: true }, async (socket, request) => {
@@ -263,8 +358,11 @@ export async function websocketRoutes(fastify: FastifyInstance) {
     const side: Side = userId === inst.leftId ? 'left' : 'right'
 
     // 既存ソケットを置き換え（再接続）
+    // 再接続判定は「ゲームが進行中(=phase !== 'waiting')」で行う。
+    // 切断時に inst.sockets から userId を削除しているため、
+    // previousSocket の有無だけでは再接続を検知できない。
     const previousSocket = inst.sockets.get(userId)
-    const isReconnect = !!previousSocket && inst.state.phase !== 'waiting'
+    const isReconnect = inst.state.phase !== 'waiting'
     if (previousSocket && previousSocket !== socket && previousSocket.readyState === previousSocket.OPEN) {
       try { previousSocket.close() } catch { /* ignore */ }
     }
@@ -356,6 +454,10 @@ export async function websocketRoutes(fastify: FastifyInstance) {
 
       if (inst.sockets.size === 0) {
         // 両者切断 → ROOM_DROP_MS の猶予
+        // 先に設定されていた片方向の graceTimer は、
+        // 両者切断では ROOM_DROP_MS 側を優先するため解除する。
+        for (const t of inst.playerGraceTimers.values()) clearTimeout(t)
+        inst.playerGraceTimers.clear()
         broadcastInstance(inst, {
           type: 'opponent_disconnected',
           userId,
@@ -449,6 +551,7 @@ async function finalizeGame(inst: GameInstance) {
     : null
 
   const game = await prisma.games.findUnique({ where: { id: inst.id } })
+  const tournamentId = game?.tournamentId ?? null
   if (game && game.statusId !== finishedStatus.id) {
     await prisma.games.update({
       where: { id: inst.id },
@@ -467,19 +570,36 @@ async function finalizeGame(inst: GameInstance) {
       })
     }
 
-    // 待機部屋クリーンアップ（再マッチ時の干渉防止）
-    const participantUserIds = [inst.leftId, inst.rightId]
-    const stalePairs = await prisma.waitingRoomParticipants.findMany({
-      where: { userId: { in: participantUserIds } },
-    })
-    const staleRoomIds = [...new Set(stalePairs.map(p => p.waitingRoomId))]
-    if (staleRoomIds.length > 0) {
-      await prisma.waitingRoomParticipants.deleteMany({
-        where: { waitingRoomId: { in: staleRoomIds } },
+    // 通常対戦時のみ待機部屋をクリーンアップ
+    // (トーナメントは waitingRoom を経由しないため不要)
+    if (tournamentId === null) {
+      const participantUserIds = [inst.leftId, inst.rightId]
+      const stalePairs = await prisma.waitingRoomParticipants.findMany({
+        where: { userId: { in: participantUserIds } },
       })
-      await prisma.waitingRooms.deleteMany({
-        where: { id: { in: staleRoomIds } },
-      })
+      const staleRoomIds = [...new Set(stalePairs.map(p => p.waitingRoomId))]
+      if (staleRoomIds.length > 0) {
+        await prisma.waitingRoomParticipants.deleteMany({
+          where: { waitingRoomId: { in: staleRoomIds } },
+        })
+        await prisma.waitingRooms.deleteMany({
+          where: { id: { in: staleRoomIds } },
+        })
+      }
+    }
+
+    // トーナメント試合だった場合、次ラウンド生成 or 優勝判定
+    if (tournamentId !== null) {
+      try {
+        const result = await advanceTournament(tournamentId)
+        // トーナメント詳細ページの参加者全員に進行を通知する。
+        // - 試合終了直後 (no_op): まだ同ラウンドが進行中なので「更新」イベントだけ送る
+        // - 次ラウンド生成: round_advanced
+        // - 優勝確定: finished （勝者情報を添えて）
+        await broadcastTournamentAdvance(tournamentId, result.status)
+      } catch (e) {
+        console.error('advanceTournament error:', e)
+      }
     }
   }
 
@@ -490,6 +610,7 @@ async function finalizeGame(inst: GameInstance) {
     winnerId,
     scoreLeft: inst.state.scoreLeft,
     scoreRight: inst.state.scoreRight,
+    tournamentId,
   })
 
   // 実績チェック

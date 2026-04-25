@@ -24,12 +24,18 @@ export async function buildUserResponse(userId: number) {
   const rank = allWins.findIndex(r => r.userId === userId) + 1 || allWins.length + 1
   const level = Math.floor(wins / 5) + 1
 
+  // 連携済みの 42 アカウントが存在するか
+  const intra42Account = await prisma.accounts.findFirst({
+    where: { userId, provider: 'intra42' },
+  })
+
   return {
     id: user.id,
     nickname: user.nickname,
     email: user.email,
     avatarUrl: user.pictureURL,
     isTwoFactorEnabled: user.isTwoFactorEnabled,
+    is42Linked: !!intra42Account,
     statusId: user.statusId,
     status: status
       ? { id: status.id, name: status.name, entityType: status.category }

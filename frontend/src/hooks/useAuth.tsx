@@ -21,6 +21,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    // 42 OAuth コールバックは /dashboard?token=XXX に戻ってくる。
+    // 最初に URL から token を拾って sessionStorage に保存し、
+    // クエリは履歴から消す（リロード時に再消費されるのを防ぐため）。
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const urlToken = sp.get('token');
+      if (urlToken) {
+        sessionStorage.setItem('auth_token', urlToken);
+        sp.delete('token');
+        const newSearch = sp.toString();
+        const newUrl =
+          window.location.pathname +
+          (newSearch ? `?${newSearch}` : '') +
+          window.location.hash;
+        window.history.replaceState({}, '', newUrl);
+      }
+    } catch {
+      // URL 操作に失敗しても致命的ではない
+    }
+
     const token = sessionStorage.getItem('auth_token');
     if (token) {
       api.getMe()
