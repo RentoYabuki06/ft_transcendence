@@ -1,15 +1,16 @@
-FROM alpine:3.20
+FROM node:22-alpine
 
 WORKDIR /app
 
-RUN apk update && apk add --no-cache \
-    nodejs=20.15.1-r0 \
-    npm=10.9.1-r0 \
-    iputils \
-    vim
+RUN apk add --no-cache iputils vim
 
-COPY frontend/package*.json ./
-RUN npm ci
+COPY frontend/package.json ./
+# package-lock.json はホスト (macOS) 由来で platform-specific な rollup バイナリのみロックされており
+# Linux コンテナで npm ci すると @rollup/rollup-linux-* が欠落する (npm optional deps bug)。
+# npm install で解決するが、optional deps の巻き上げで esbuild の JS wrapper と native バイナリの
+# バージョン不一致が出ることがあるので npm rebuild で整合させる。
+RUN npm install \
+ && rm -rf node_modules/esbuild/node_modules
 
 COPY frontend/ ./
 

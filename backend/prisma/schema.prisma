@@ -2,8 +2,9 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider      = "prisma-client-js"
+  output        = "../generated/prisma"
+  binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -12,20 +13,9 @@ datasource db {
 }
 
 // ------------------------------------------------------
-// Enums (列挙型)
-// ------------------------------------------------------
-
-/// 認証プロバイダーの種類
-enum AuthProvider {
-  google   // Google OAuth
-  intra42  // 42 Intra OAuth
-  github   // GitHub OAuth
-  local    // ローカル認証（Email/Password）
-}
-
-// ------------------------------------------------------
 // Models (テーブル定義)
 // ------------------------------------------------------
+// AuthProvider: 'google' | 'intra42' | 'github' | 'local'
 
 /// ステータスマスターテーブル
 /// 各エンティティのステータスを一元管理します
@@ -50,13 +40,14 @@ model Users {
   
   email              String       @unique /// メールアドレス（システム内で一意）
   name               String       /// 氏名（実名など）
-  nickname           String       /// 表示名
+  nickname           String       @unique /// 表示名（システム内で一意）
   pictureURL         String?      /// アバター画像のURL
   statusId           Int          /// アカウント状態（Statusesテーブルへの参照）
 
-  // --- Two-factor authentication (2FA) ---
-  twoFactorSecret    String?      /// 2FA用のTOTP秘密鍵（Base32文字列）
+  // --- Two-factor authentication (2FA: email OTP方式) ---
   isTwoFactorEnabled Boolean      @default(false) /// 2FA有効化フラグ
+  twoFactorCode      String?      /// 送信済み6桁コード（ハッシュ値）
+  twoFactorCodeExpiresAt DateTime? /// コード有効期限
   
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @default(now()) @updatedAt
@@ -70,8 +61,9 @@ model Accounts {
   statusId          Int          /// アカウント連携のステータス（Statusesテーブルへの参照）
   userId            Int          /// 紐付くユーザーのID (Users.id)
   
-  provider          AuthProvider /// 認証プロバイダーの種類
+  provider          String       /// 認証プロバイダーの種類 ('google' | 'intra42' | 'github' | 'local')
   providerAccountId String       /// プロバイダー側でのユーザーID (sub, id等)
+  passwordHash      String?      /// ローカル認証用ハッシュ済みパスワード
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -83,11 +75,25 @@ model Accounts {
 /// トーナメント情報を管理するテーブル
 model Tournaments {
   id              Int               @id @default(autoincrement())
-  
+
   statusId        Int               /// トーナメントの進行状況（Statusesテーブルへの参照）
-  
+  name            String            /// トーナメント名
+  createdBy       Int               /// 作成者ユーザーID
+  maxParticipants Int               @default(8) /// 最大参加人数（4 or 8）
+
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @default(now()) @updatedAt
+}
+
+/// トーナメント参加者テーブル
+model TournamentParticipants {
+  id           Int      @id @default(autoincrement())
+  tournamentId Int
+  userId       Int
+  alias        String   /// トーナメント内の表示名（ニックネーム）
+  createdAt    DateTime @default(now())
+
+  @@unique([tournamentId, userId])
 }
 
 /// 待機室（マッチング待ち）テーブル
@@ -122,7 +128,7 @@ model Games {
   id              Int               @id @default(autoincrement())
   
   statusId        Int               /// 試合の進行状況（Statusesテーブルへの参照）
-  tournamentId    Int               /// 所属トーナメントID
+  tournamentId    Int?              /// 所属トーナメントID（通常対戦はNULL）
   round           Int               @default(1) /// 何回戦か (1: 1回戦, 2: 2回戦...)
   order           Int               @default(1) /// そのラウンド内の何試合目か
   playerNum       Int               @default(2) /// 参加人数（基本は2）
@@ -152,7 +158,63 @@ model PlayerScores {
   gameId          Int               /// 対象の試合ID
   userId          Int               /// プレイヤーのユーザーID
   score           Int               @default(0) /// 獲得スコア
-  
+  isWinner        Boolean           @default(false) /// 勝者フラグ
+
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @default(now()) @updatedAt
+}
+
+/// フレンド関係を管理するテーブル（申請フェーズ付き）
+/// userId が申請者、friendId が相手。1ペアにつき1レコードのみ
+model Friendships {
+  id         Int      @id @default(autoincrement())
+  userId     Int      /// 申請者ユーザーID
+  friendId   Int      /// 相手ユーザーID
+  status     String   @default("pending") /// 'pending' | 'accepted'
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@unique([userId, friendId])
+}
+
+/// ブロック関係を管理するテーブル（userId が blockedId をブロック）
+model Blocks {
+  id         Int      @id @default(autoincrement())
+  userId     Int      /// ブロックしたユーザーID
+  blockedId  Int      /// ブロックされたユーザーID
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, blockedId])
+}
+
+/// 1対1チャットメッセージテーブル
+model Messages {
+  id         Int      @id @default(autoincrement())
+  senderId   Int      /// 送信者ユーザーID
+  receiverId Int      /// 受信者ユーザーID
+  body       String   /// メッセージ本文
+  readAt     DateTime? /// 受信者が既読にした時刻
+  createdAt  DateTime @default(now())
+
+  @@index([senderId, receiverId, createdAt])
+  @@index([receiverId, senderId, createdAt])
+}
+
+/// 実績マスターテーブル
+model Achievements {
+  id          Int    @id @default(autoincrement())
+  key         String @unique /// 識別キー ('first_win', 'ten_wins', etc.)
+  name        String
+  description String
+  icon        String @default("🏆")
+}
+
+/// ユーザーが獲得した実績を管理するテーブル
+model UserAchievements {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  achievementId Int
+  unlockedAt    DateTime @default(now())
+
+  @@unique([userId, achievementId])
 }

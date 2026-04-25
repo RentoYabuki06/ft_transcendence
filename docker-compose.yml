@@ -1,12 +1,28 @@
 services:
+  nginx:
+    build:
+      context: ./
+      dockerfile: docker/nginx/Dockerfile
+    image: ft_transcendence_nginx:dev
+    container_name: ft_transcendence_nginx
+    ports:
+      - "8443:443"
+      - "8080:80"
+    restart: unless-stopped
+    networks:
+      - app-network
+    depends_on:
+      - frontend
+      - backend
+
   frontend:
     build:
       context: ./
       dockerfile: docker/frontend/Dockerfile
     image: ft_transcendence_frontend:dev
     container_name: ft_transcendence_frontend
-    ports:
-      - "5173:5173"
+    expose:
+      - "5173"
     restart: unless-stopped
     volumes:
       - ./frontend:/app
@@ -17,19 +33,21 @@ services:
       - VITE_PORT=5173
       - VITE_API_PROXY_PATH=/api
       - VITE_API_TARGET=http://backend:3000
+      - VITE_HMR_BEHIND_PROXY=true
     networks:
       - app-network
     depends_on:
       backend:
         condition: service_healthy
+
   backend:
-    build: 
+    build:
       context: ./
       dockerfile: docker/backend/Dockerfile
     image: ft_transcendence_backend:dev
     container_name: ft_transcendence_backend
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     restart: unless-stopped
     volumes:
       - ./backend:/app

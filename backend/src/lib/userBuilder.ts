@@ -1,0 +1,50 @@
+import prisma from './prisma.js'
+
+export async function buildUserResponse(userId: number) {
+  const user = await prisma.users.findUnique({ where: { id: userId } })
+  if (!user) return null
+
+  const status = await prisma.statuses.findUnique({ where: { id: user.statusId } })
+
+  // 終了済みの試合のみ集計（pending は isWinner=false のままなので losses に混入する）
+  const finishedStatus = await prisma.statuses.findFirst({
+    where: { category: 'game', name: 'finished' },
+  })
+  const finishedFilter = finishedStatus ? { statusId: finishedStatus.id } : {}
+  const scores = await prisma.playerScores.findMany({ where: { userId, ...finishedFilter } })
+  const wins = scores.filter(s => s.isWinner).length
+  const losses = scores.filter(s => !s.isWinner).length
+
+  const allWins = await prisma.playerScores.groupBy({
+    by: ['userId'],
+    _count: { id: true },
+    where: { isWinner: true, ...finishedFilter },
+    orderBy: { _count: { id: 'desc' } },
+  })
+  const rank = allWins.findIndex(r => r.userId === userId) + 1 || allWins.length + 1
+  const level = Math.floor(wins / 5) + 1
+
+  // 連携済みの 42 アカウントが存在するか
+  const intra42Account = await prisma.accounts.findFirst({
+    where: { userId, provider: 'intra42' },
+  })
+
+  return {
+    id: user.id,
+    nickname: user.nickname,
+    email: user.email,
+    avatarUrl: user.pictureURL,
+    isTwoFactorEnabled: user.isTwoFactorEnabled,
+    is42Linked: !!intra42Account,
+    statusId: user.statusId,
+    status: status
+      ? { id: status.id, name: status.name, entityType: status.category }
+      : null,
+    wins,
+    losses,
+    rank,
+    level,
+    createdAt: user.createdAt.toISOString(),
+    updatedAt: user.updatedAt.toISOString(),
+  }
+}

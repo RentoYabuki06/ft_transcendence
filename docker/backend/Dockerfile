@@ -21,9 +21,10 @@ COPY backend/ ./
 # Prisma Client生成
 RUN npx prisma generate
 
-# sqlite data-dir
-RUN mkdir -p /app/data
+# アップロードディレクトリ & SQLite データディレクトリ
+RUN mkdir -p /app/data /app/uploads
 
 EXPOSE 3000
 
-CMD [ "npm", "run", "dev" ]
+# マイグレーション → シード → サーバー起動
+CMD sh -c "npx prisma generate && npx prisma migrate deploy && npm run seed && npm run dev"
