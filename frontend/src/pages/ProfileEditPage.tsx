@@ -16,7 +16,7 @@ export function ProfileEditPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [link42Busy, setLink42Busy] = useState(false);
+  // const [link42Busy, setLink42Busy] = useState(false);
 
   // 2FA (email OTP)
   const [twoFaSetupStarted, setTwoFaSetupStarted] = useState(false);
@@ -245,7 +245,7 @@ export function ProfileEditPage() {
             パスワードを表示
           </label>
 
-          {/* 42 OAuth 連携 */}
+          {/* 42 OAuth 連携 — 一時的に非表示 (新規登録/ログイン画面の 42 ボタンから連携可能なため、設定画面では割愛)
           <div className="flex items-center gap-3 p-3 rounded-lg bg-white/3 border border-white/5">
             <span className="font-display font-bold text-lg text-cosmic-cyan">42</span>
             <span className="text-sm text-star-white/50">OAuth連携</span>
@@ -316,6 +316,7 @@ export function ProfileEditPage() {
               )}
             </div>
           </div>
+          */}
 
           <button
             type="submit"
