@@ -55,6 +55,18 @@ export function TournamentDetailPage() {
     load();
   }, [tournamentId]);
 
+  // 進行中のトーナメントは 5 秒ごとに再取得して、
+  // 自分の試合が終わってブラケット画面に戻った瞬間に
+  // 次ラウンドの試合カードが表示されるようにする
+  useEffect(() => {
+    if (!tournamentId) return;
+    if (detail?.status?.name !== 'ongoing') return;
+    const handle = window.setInterval(() => {
+      api.getTournament(tournamentId).then(setDetail).catch(() => {});
+    }, 5000);
+    return () => window.clearInterval(handle);
+  }, [tournamentId, detail?.status?.name]);
+
   if (!tournamentId) return <div className="py-8 text-center">無効なIDです</div>;
   if (!detail) return <div className="py-8 text-center text-star-white/50">読み込み中...</div>;
 

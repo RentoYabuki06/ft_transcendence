@@ -166,9 +166,11 @@ export const api = {
   },
 
   getGame: (id: number) =>
-    request<{ id: number; players: Array<{ userId: number; user: { id: number; nickname: string; avatarUrl: string | null } | null }> }>(
-      `/games/${id}`
-    ),
+    request<{
+      id: number;
+      tournamentId: number | null;
+      players: Array<{ userId: number; user: { id: number; nickname: string; avatarUrl: string | null } | null }>;
+    }>(`/games/${id}`),
 
   getRanking: (params?: { page?: number; limit?: number }) => {
     const query = new URLSearchParams();

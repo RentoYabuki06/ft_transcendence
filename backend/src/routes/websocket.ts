@@ -13,6 +13,7 @@ import {
   tick,
   TICK_MS,
 } from '../lib/gameEngine.js'
+import { advanceTournament } from '../lib/tournament.js'
 
 // --- 接続管理 ---
 // presenceMap: userId -> WebSocket (オンライン状態)
@@ -456,6 +457,7 @@ async function finalizeGame(inst: GameInstance) {
     : null
 
   const game = await prisma.games.findUnique({ where: { id: inst.id } })
+  const tournamentId = game?.tournamentId ?? null
   if (game && game.statusId !== finishedStatus.id) {
     await prisma.games.update({
       where: { id: inst.id },
@@ -474,19 +476,31 @@ async function finalizeGame(inst: GameInstance) {
       })
     }
 
-    // 待機部屋クリーンアップ（再マッチ時の干渉防止）
-    const participantUserIds = [inst.leftId, inst.rightId]
-    const stalePairs = await prisma.waitingRoomParticipants.findMany({
-      where: { userId: { in: participantUserIds } },
-    })
-    const staleRoomIds = [...new Set(stalePairs.map(p => p.waitingRoomId))]
-    if (staleRoomIds.length > 0) {
-      await prisma.waitingRoomParticipants.deleteMany({
-        where: { waitingRoomId: { in: staleRoomIds } },
+    // 通常対戦時のみ待機部屋をクリーンアップ
+    // (トーナメントは waitingRoom を経由しないため不要)
+    if (tournamentId === null) {
+      const participantUserIds = [inst.leftId, inst.rightId]
+      const stalePairs = await prisma.waitingRoomParticipants.findMany({
+        where: { userId: { in: participantUserIds } },
       })
-      await prisma.waitingRooms.deleteMany({
-        where: { id: { in: staleRoomIds } },
-      })
+      const staleRoomIds = [...new Set(stalePairs.map(p => p.waitingRoomId))]
+      if (staleRoomIds.length > 0) {
+        await prisma.waitingRoomParticipants.deleteMany({
+          where: { waitingRoomId: { in: staleRoomIds } },
+        })
+        await prisma.waitingRooms.deleteMany({
+          where: { id: { in: staleRoomIds } },
+        })
+      }
+    }
+
+    // トーナメント試合だった場合、次ラウンド生成 or 優勝判定
+    if (tournamentId !== null) {
+      try {
+        await advanceTournament(tournamentId)
+      } catch (e) {
+        console.error('advanceTournament error:', e)
+      }
     }
   }
 
@@ -497,6 +511,7 @@ async function finalizeGame(inst: GameInstance) {
     winnerId,
     scoreLeft: inst.state.scoreLeft,
     scoreRight: inst.state.scoreRight,
+    tournamentId,
   })
 
   // 実績チェック
