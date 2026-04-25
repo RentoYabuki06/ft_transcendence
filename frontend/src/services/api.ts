@@ -61,6 +61,16 @@ export const api = {
     window.location.href = `${API_BASE}/auth/42`;
   },
 
+  // ログイン中ユーザーに 42 アカウントを紐付ける開始エンドポイント。
+  // バックエンドが署名済み state を含む authorize URL を返してくるので、それへ飛ばす。
+  start42Link: async () => {
+    const res = await request<{ url: string }>('/auth/42/link/start', { method: 'POST' });
+    window.location.href = res.url;
+  },
+
+  unlink42: () =>
+    request<{ message: string }>('/auth/42/link', { method: 'DELETE' }),
+
   // Users
   getMe: () =>
     request<import('../types').User>('/users/me'),

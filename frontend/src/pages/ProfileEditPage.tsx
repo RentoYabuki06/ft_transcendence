@@ -1,11 +1,11 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { UserAvatar } from '../components/UserAvatar';
 import { api } from '../services/api';
 
 export function ProfileEditPage() {
-  const { user, updateUser, logout } = useAuth();
+  const { user, updateUser, logout, refreshUser } = useAuth();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -16,12 +16,41 @@ export function ProfileEditPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [link42Busy, setLink42Busy] = useState(false);
 
   // 2FA (email OTP)
   const [twoFaSetupStarted, setTwoFaSetupStarted] = useState(false);
   const [twoFaSentTo, setTwoFaSentTo] = useState<string>('');
   const [twoFaCode, setTwoFaCode] = useState('');
   const [twoFaBusy, setTwoFaBusy] = useState(false);
+
+  // OAuth コールバックから戻ってきた時のフィードバック表示
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const linked = sp.get('linked');
+    const error = sp.get('error');
+    let consumed = false;
+    if (linked === '42') {
+      setMessage({ type: 'success', text: '42 アカウントを連携しました' });
+      refreshUser();
+      consumed = true;
+    } else if (error === 'already_linked_other') {
+      setMessage({ type: 'error', text: 'この 42 アカウントは別ユーザーに連携済みです' });
+      consumed = true;
+    } else if (error === 'oauth_failed') {
+      setMessage({ type: 'error', text: '42 連携に失敗しました。もう一度お試しください' });
+      consumed = true;
+    }
+    if (consumed) {
+      // 1 度表示したらクエリは消す（リロード時に再表示されないように）
+      sp.delete('linked');
+      sp.delete('error');
+      const q = sp.toString();
+      const newUrl = window.location.pathname + (q ? `?${q}` : '') + window.location.hash;
+      window.history.replaceState({}, '', newUrl);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!user) return null;
 
@@ -216,15 +245,76 @@ export function ProfileEditPage() {
             パスワードを表示
           </label>
 
-          {/* 42 OAuth Status */}
+          {/* 42 OAuth 連携 */}
           <div className="flex items-center gap-3 p-3 rounded-lg bg-white/3 border border-white/5">
             <span className="font-display font-bold text-lg text-cosmic-cyan">42</span>
             <span className="text-sm text-star-white/50">OAuth連携</span>
-            <span className={`ml-auto text-xs px-2 py-0.5 rounded-full ${
-              false ? 'bg-cosmic-green/10 text-cosmic-green' : 'bg-white/5 text-star-white/30'
+            <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
+              user.is42Linked
+                ? 'bg-cosmic-green/10 text-cosmic-green'
+                : 'bg-white/5 text-star-white/30'
             }`}>
-              未連携
+              {user.is42Linked ? '連携済み' : '未連携'}
             </span>
+            <div className="ml-auto" onClick={(e) => e.stopPropagation()}>
+              {user.is42Linked ? (
+                <button
+                  type="button"
+                  disabled={link42Busy}
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    if (!confirm('42 連携を解除しますか？\nパスワードでのログインは引き続き可能です。')) return;
+                    setLink42Busy(true);
+                    setMessage(null);
+                    try {
+                      await api.unlink42();
+                      updateUser({ ...user, is42Linked: false });
+                      setMessage({ type: 'success', text: '42 連携を解除しました' });
+                    } catch (err) {
+                      setMessage({
+                        type: 'error',
+                        text: err instanceof Error ? err.message : '解除に失敗しました',
+                      });
+                    } finally {
+                      setLink42Busy(false);
+                    }
+                  }}
+                  className="cosmic-btn"
+                  style={{
+                    fontSize: '0.75rem',
+                    padding: '0.4rem 0.9rem',
+                    borderColor: 'rgba(251,113,133,0.3)',
+                    color: '#fb7185',
+                  }}
+                >
+                  {link42Busy ? '...' : '解除'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={link42Busy}
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    setLink42Busy(true);
+                    setMessage(null);
+                    try {
+                      await api.start42Link();
+                      // ここでブラウザは 42 にリダイレクトされる
+                    } catch (err) {
+                      setLink42Busy(false);
+                      setMessage({
+                        type: 'error',
+                        text: err instanceof Error ? err.message : '連携を開始できませんでした',
+                      });
+                    }
+                  }}
+                  className="cosmic-btn"
+                  style={{ fontSize: '0.75rem', padding: '0.4rem 0.9rem' }}
+                >
+                  {link42Busy ? '...' : '42を連携'}
+                </button>
+              )}
+            </div>
           </div>
 
           <button
